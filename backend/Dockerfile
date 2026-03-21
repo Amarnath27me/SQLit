@@ -9,7 +9,7 @@ WORKDIR /app
 
 # Install system dependencies for psycopg2
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends gcc libpq-dev && \
+    apt-get install -y --no-install-recommends gcc libpq-dev curl && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -21,14 +21,11 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY . .
 
 # ---------- Runtime ----------
-# Railway injects $PORT dynamically — no need to EXPOSE a fixed port
+# Verify the app can import without errors (build-time check)
+RUN python -c "from app.main import app; print('App imports OK')"
 
-# Remove Docker-level HEALTHCHECK — Railway uses its own HTTP healthcheck
-# (Docker HEALTHCHECK can't read $PORT at build time, causing false failures)
+# Default port — Railway overrides via $PORT env var
+ENV PORT=8001
 
-# Start server — single worker for free tier (512MB), scale up via env var
-CMD uvicorn app.main:app \
-    --host 0.0.0.0 \
-    --port ${PORT:-8001} \
-    --workers ${WEB_WORKERS:-1} \
-    --log-level info
+# Start server
+CMD ["sh", "-c", "echo Starting on port $PORT && uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1 --log-level info"]
