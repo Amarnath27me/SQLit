@@ -1,0 +1,69 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Build output
+dist
+dist-ssr
+.next
+out
+
+# Environment files (NEVER commit secrets)
+.env
+.env.local
+.env.*.local
+*.local
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+.venv
+venv
+*.egg-info
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Editor directories
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Testing / Linting caches
+.mypy_cache
+.pytest_cache
+.ruff_cache
+coverage
+
+# Docker volumes
+pgdata
+
+# Old Vite prototype (root level) — real app is in frontend/ and backend/
+/src/
+/public/
+/index.html
+/vite.config.ts
+/tsconfig.app.json
+/tsconfig.node.json
+/eslint.config.js
+/package.json
+/package-lock.json
+/tsconfig.json
+
+# Claude config
+.claude/
