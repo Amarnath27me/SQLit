@@ -21,15 +21,14 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY . .
 
 # ---------- Runtime ----------
-EXPOSE 8001
+# Railway injects $PORT dynamically — no need to EXPOSE a fixed port
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')" || exit 1
+# Remove Docker-level HEALTHCHECK — Railway uses its own HTTP healthcheck
+# (Docker HEALTHCHECK can't read $PORT at build time, causing false failures)
 
-# Start server — $PORT is injected by Railway/Render; default to 8001
+# Start server — single worker for free tier (512MB), scale up via env var
 CMD uvicorn app.main:app \
     --host 0.0.0.0 \
     --port ${PORT:-8001} \
-    --workers 4 \
+    --workers ${WEB_WORKERS:-1} \
     --log-level info
