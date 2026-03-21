@@ -19,7 +19,7 @@ app = FastAPI(
 # CORS — restrict to configured origins in production
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
@@ -32,4 +32,4 @@ app.include_router(query.router, prefix="/api/query", tags=["query"])
 app.include_router(problems.router, prefix="/api/problems", tags=["problems"])
 app.include_router(progress.router, prefix="/api/progress", tags=["progress"])
 
-logger.info("SQLit API ready — CORS origins: %s", settings.cors_origins)
+logger.info("SQLit API ready — CORS origins: %s", settings.cors_origins_list)

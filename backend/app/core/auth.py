@@ -81,7 +81,7 @@ async def _verify_token(token: str) -> dict[str, Any]:
         payload = jwt.decode(
             token,
             public_key,
-            algorithms=settings.auth0_algorithms,
+            algorithms=settings.auth0_algorithms_list,
             audience=settings.auth0_api_audience,
             issuer=f"https://{settings.auth0_domain}/",
         )
