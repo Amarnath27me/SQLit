@@ -22,11 +22,22 @@ export async function proxyToBackend(
 
   try {
     const res = await fetch(url, init);
-    const data = await res.json();
-    return NextResponse.json(data, { status: res.status });
-  } catch {
+    const text = await res.text();
+    // Try parsing as JSON, fall back to plain text error
+    try {
+      const data = JSON.parse(text);
+      return NextResponse.json(data, { status: res.status });
+    } catch {
+      return NextResponse.json(
+        { detail: `Backend returned non-JSON: ${text.slice(0, 200)}` },
+        { status: res.status }
+      );
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error(`[proxy] Failed to reach ${url}: ${message}`);
     return NextResponse.json(
-      { detail: "Backend unavailable" },
+      { detail: `Backend unavailable: ${message}` },
       { status: 502 }
     );
   }

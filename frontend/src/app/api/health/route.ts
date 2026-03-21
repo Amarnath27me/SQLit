@@ -3,13 +3,25 @@ import { NextResponse } from "next/server";
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8001";
 
 export async function GET() {
+  const backendTarget = `${BACKEND_URL}/health`;
   try {
-    const res = await fetch(`${BACKEND_URL}/health`, { cache: "no-store" });
+    const res = await fetch(backendTarget, { cache: "no-store" });
     const data = await res.json();
-    return NextResponse.json({ ...data, frontend: "ok" });
-  } catch {
+    return NextResponse.json({
+      frontend: "ok",
+      backend: "ok",
+      backend_url: BACKEND_URL,
+      backend_response: data,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json(
-      { status: "error", frontend: "ok", backend: "unreachable" },
+      {
+        frontend: "ok",
+        backend: "unreachable",
+        backend_url: BACKEND_URL,
+        error: message,
+      },
       { status: 502 }
     );
   }
