@@ -1,3 +1,6 @@
+// API_BASE should be empty ("") in production — requests go to /api/* on the
+// same Vercel origin, which proxies to the backend server-side (no CORS issues).
+// Only set NEXT_PUBLIC_API_URL for local dev if needed.
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 export async function apiClient<T>(
