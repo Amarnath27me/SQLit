@@ -3,7 +3,8 @@ import { proxyToBackend } from "@/lib/proxy";
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { slug: string } }
+  { params }: { params: Promise<{ slug: string }> }
 ) {
-  return proxyToBackend(req, `/api/problems/${params.slug}`);
+  const { slug } = await params;
+  return proxyToBackend(req, `/api/problems/${slug}`);
 }
