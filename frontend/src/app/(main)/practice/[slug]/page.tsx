@@ -165,7 +165,7 @@ export default function ProblemPage() {
           </div>
           <button
             onClick={() => { setError(null); fetchProblem(); }}
-            className="rounded-lg bg-white/10 px-4 py-2 text-sm font-medium text-white/70 transition-colors hover:bg-white/15 hover:text-white"
+            className="rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] px-4 py-2 text-sm font-medium text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text-primary)] hover:border-[var(--color-accent)]"
           >
             Try Again
           </button>
