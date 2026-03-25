@@ -11,7 +11,6 @@ interface SQLEditorProps {
   dialect: "postgresql" | "mysql";
   readOnly?: boolean;
   tables?: { name: string; columns: string[] }[];
-  guestLocked?: boolean;
 }
 
 export function SQLEditor({
@@ -21,7 +20,6 @@ export function SQLEditor({
   dialect,
   readOnly = false,
   tables = [],
-  guestLocked = false,
 }: SQLEditorProps) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
@@ -35,7 +33,7 @@ export function SQLEditor({
         label: "Run Query",
         keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
         run: () => {
-          if (!guestLocked) onRun();
+          onRun();
         },
       });
 
@@ -77,7 +75,7 @@ export function SQLEditor({
 
       editor.focus();
     },
-    [onRun, tables, guestLocked]
+    [onRun, tables]
   );
 
   return (
@@ -89,14 +87,9 @@ export function SQLEditor({
         </span>
         <div className="flex-1" />
         <button
-          onClick={guestLocked ? undefined : onRun}
-          disabled={guestLocked}
+          onClick={onRun}
           aria-label="Run SQL query (Ctrl+Enter)"
-          className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium text-white transition-colors ${
-            guestLocked
-              ? "cursor-not-allowed bg-gray-400 dark:bg-gray-600"
-              : "bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)]"
-          }`}
+          className="flex items-center gap-1.5 rounded-md bg-[var(--color-accent)] px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-[var(--color-accent-hover)]"
         >
           <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
             <path d="M8 5v14l11-7z" />
@@ -133,33 +126,6 @@ export function SQLEditor({
         />
       </div>
 
-      {/* Guest lock overlay */}
-      {guestLocked && (
-        <div className="absolute inset-0 top-[41px] flex items-center justify-center bg-black/40 backdrop-blur-[2px]">
-          <div role="dialog" aria-modal="true" aria-describedby="guest-lock-description" className="mx-4 max-w-sm rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center shadow-xl">
-            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-accent)]/10">
-              <svg className="h-6 w-6 text-[var(--color-accent)]" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
-              </svg>
-            </div>
-            <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">
-              Sign in to Run Queries
-            </h3>
-            <p id="guest-lock-description" className="mt-1 text-xs text-[var(--color-text-muted)]">
-              Create a free account to execute SQL, track progress, and earn XP.
-            </p>
-            <a
-              href="/auth/login"
-              className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-accent)] px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-[var(--color-accent-hover)]"
-            >
-              Sign In
-              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-              </svg>
-            </a>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

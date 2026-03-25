@@ -205,7 +205,7 @@ export default function ProblemPage() {
           <ProblemPanel
             title={problem.title}
             difficulty={problem.difficulty}
-            acceptanceRate={0}
+            acceptanceRate={userStore.acceptanceRate}
             description={problem.description}
             conceptTags={problem.concept_tags}
             schema={relevantSchema}
@@ -222,7 +222,6 @@ export default function ProblemPage() {
             onRun={handleRun}
             dialect={store.dialect}
             tables={tables}
-            guestLocked={!isAuthenticated}
           />
         }
         right={

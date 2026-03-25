@@ -36,6 +36,9 @@ interface UserState {
   totalSolves: number;
   acceptanceHistory: { correct: number; total: number };
 
+  // Computed
+  readonly acceptanceRate: number;
+
   // Actions
   addXP: (amount: number) => void;
   markSolved: (problemId: string) => void;
@@ -46,7 +49,7 @@ interface UserState {
 
 export const useUserStore = create<UserState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       isAuthenticated: false,
       displayName: "Guest",
       email: "",
@@ -59,6 +62,11 @@ export const useUserStore = create<UserState>()(
       solvedProblems: [],
       totalSolves: 0,
       acceptanceHistory: { correct: 0, total: 0 },
+
+      get acceptanceRate() {
+        const { correct, total } = get().acceptanceHistory;
+        return total > 0 ? Math.round((correct / total) * 100) : 0;
+      },
 
       addXP: (amount) =>
         set((state) => {
