@@ -69,16 +69,7 @@ export function ProblemPanel({
             </p>
           </div>
 
-          {/* Concept tags — only shown for easy problems to guide beginners */}
-          {difficulty === "easy" && conceptTags.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {conceptTags.map((tag) => (
-                <Badge key={tag} variant="default">
-                  {tag}
-                </Badge>
-              ))}
-            </div>
-          )}
+          {/* Concept tags hidden — showing SQL keywords gives away the approach */}
 
           {/* Selectors */}
           <div className="flex gap-2">

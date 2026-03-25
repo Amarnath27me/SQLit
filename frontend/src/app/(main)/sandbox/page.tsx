@@ -300,35 +300,42 @@ export default function SandboxPage() {
                   </span>
                 </div>
                 {result.rowCount > 0 ? (
-                  <table className="w-full text-xs">
-                    <thead className="sticky top-0 bg-[var(--color-surface)]">
-                      <tr className="border-b border-[var(--color-border)]">
-                        {result.columns.map((col) => (
-                          <th key={col} className="px-3 py-2 text-left font-medium text-[var(--color-text-muted)]">
-                            {col}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {result.rows.map((row, i) => (
-                        <tr key={i} className="border-b border-[var(--color-border)]/30 hover:bg-[var(--color-surface)]">
-                          {row.map((cell, j) => (
-                            <td
-                              key={j}
-                              className={`px-3 py-1.5 font-mono ${
-                                cell === null
-                                  ? "italic text-[var(--color-text-muted)]"
-                                  : "text-[var(--color-text-secondary)]"
-                              }`}
-                            >
-                              {cell === null ? "NULL" : String(cell)}
-                            </td>
+                  <>
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-[var(--color-surface)]">
+                        <tr className="border-b border-[var(--color-border)]">
+                          {result.columns.map((col) => (
+                            <th key={col} className="px-3 py-2 text-left font-medium text-[var(--color-text-muted)]">
+                              {col}
+                            </th>
                           ))}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {result.rows.slice(0, 10).map((row, i) => (
+                          <tr key={i} className="border-b border-[var(--color-border)]/30 hover:bg-[var(--color-surface)]">
+                            {row.map((cell, j) => (
+                              <td
+                                key={j}
+                                className={`px-3 py-1.5 font-mono ${
+                                  cell === null
+                                    ? "italic text-[var(--color-text-muted)]"
+                                    : "text-[var(--color-text-secondary)]"
+                                }`}
+                              >
+                                {cell === null ? "NULL" : String(cell)}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {result.rowCount > 10 && (
+                      <p className="px-4 py-2 text-[10px] text-[var(--color-text-muted)]">
+                        Showing 10 of {result.rowCount} rows
+                      </p>
+                    )}
+                  </>
                 ) : (
                   <div className="p-8 text-center text-sm text-[var(--color-text-muted)]">
                     Query returned 0 rows

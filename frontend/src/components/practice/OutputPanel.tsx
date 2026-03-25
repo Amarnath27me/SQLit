@@ -298,6 +298,7 @@ export function OutputPanel({
                 <ResultTable
                   columns={userResult.columns}
                   rows={userResult.rows}
+                  totalRowCount={userResult.rowCount}
                 />
 
                 {/* Adaptive recommendations */}
@@ -341,6 +342,7 @@ export function OutputPanel({
                       <ResultTable
                         columns={userResult.columns}
                         rows={userResult.rows}
+                        totalRowCount={userResult.rowCount}
                         highlightRows={diff?.mismatchedRows}
                         highlightColumns={diff?.mismatchedColumns}
                         maxHeight="200px"
@@ -355,6 +357,7 @@ export function OutputPanel({
                       <ResultTable
                         columns={expectedResult.columns}
                         rows={expectedResult.rows}
+                        totalRowCount={expectedResult.rowCount}
                         highlightRows={diff?.mismatchedRows}
                         highlightColumns={diff?.mismatchedColumns}
                         maxHeight="200px"
