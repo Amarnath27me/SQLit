@@ -184,9 +184,9 @@ export default function SettingsPage() {
                 <p className="text-sm text-[var(--color-text-secondary)]">
                   Signed in as <span className="font-medium text-[var(--color-text-primary)]">{displayName}</span>
                 </p>
-                <button aria-label="Sign out" className="rounded-md border border-red-200 px-3 py-1.5 text-xs font-medium text-red-500 transition-colors hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950">
+                <a href="/auth/logout" aria-label="Sign out" className="inline-block rounded-md border border-red-200 px-3 py-1.5 text-xs font-medium text-red-500 transition-colors hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950">
                   Sign Out
-                </button>
+                </a>
               </>
             ) : (
               <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] p-4">
@@ -194,7 +194,7 @@ export default function SettingsPage() {
                   Sign in to save your progress, sync across devices, and appear on the leaderboard.
                 </p>
                 <a
-                  href="/login"
+                  href="/auth/login"
                   className="mt-3 inline-block rounded-lg bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--color-accent-hover)]"
                 >
                   Sign In
