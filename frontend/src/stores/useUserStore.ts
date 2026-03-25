@@ -22,6 +22,18 @@ function isConsecutiveDay(prev: string, current: string): boolean {
   return p.toISOString().slice(0, 10) === c.toISOString().slice(0, 10);
 }
 
+function computeLevel(xp: number): number {
+  let level = 1;
+  let xpNeeded = 100;
+  let remaining = xp;
+  while (remaining >= xpNeeded) {
+    remaining -= xpNeeded;
+    level++;
+    xpNeeded = Math.floor(xpNeeded * 1.3);
+  }
+  return level;
+}
+
 interface UserState {
   isAuthenticated: boolean;
   displayName: string;
@@ -44,6 +56,8 @@ interface UserState {
   markSolved: (problemId: string) => void;
   recordAttempt: (correct: boolean) => void;
   syncFromAuth0: (user: { name?: string; email?: string; picture?: string; sub?: string }) => void;
+  syncFromBackend: () => Promise<void>;
+  saveSolveToBackend: (problemId: string, xpEarned: number) => Promise<void>;
   logout: () => void;
 }
 
@@ -73,16 +87,7 @@ export const useUserStore = create<UserState>()(
           const multiplier = getStreakMultiplier(state.streak);
           const finalXP = Math.floor(amount * multiplier);
           const newXP = state.xp + finalXP;
-          // Level up every ~100 XP with increasing thresholds
-          let level = 1;
-          let xpNeeded = 100;
-          let remaining = newXP;
-          while (remaining >= xpNeeded) {
-            remaining -= xpNeeded;
-            level++;
-            xpNeeded = Math.floor(xpNeeded * 1.3);
-          }
-          return { xp: newXP, level };
+          return { xp: newXP, level: computeLevel(newXP) };
         }),
 
       markSolved: (problemId) =>
@@ -93,15 +98,12 @@ export const useUserStore = create<UserState>()(
           let newStreak = state.streak;
 
           if (!state.lastSolveDate) {
-            // First ever solve
             newStreak = 1;
           } else if (isSameDay(state.lastSolveDate, now)) {
             // Same day, streak stays
           } else if (isConsecutiveDay(state.lastSolveDate, now)) {
-            // Consecutive day, increment streak
             newStreak = state.streak + 1;
           } else {
-            // Streak broken, reset to 1
             newStreak = 1;
           }
 
@@ -130,6 +132,43 @@ export const useUserStore = create<UserState>()(
           auth0Id: user.sub || null,
         }),
 
+      syncFromBackend: async () => {
+        try {
+          const res = await fetch("/api/progress");
+          if (!res.ok) return;
+          const data = await res.json();
+
+          const solvedIds = (data.solved || []).map(
+            (s: { problem_id: string }) => s.problem_id
+          );
+
+          set({
+            xp: data.xp ?? 0,
+            level: computeLevel(data.xp ?? 0),
+            streak: data.streak ?? 0,
+            solvedProblems: solvedIds,
+            totalSolves: solvedIds.length,
+          });
+        } catch {
+          // Backend unavailable — keep localStorage data
+        }
+      },
+
+      saveSolveToBackend: async (problemId, xpEarned) => {
+        try {
+          await fetch("/api/progress/solve", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              problem_id: problemId,
+              xp_earned: xpEarned,
+            }),
+          });
+        } catch {
+          // Backend unavailable — localStorage already has the data
+        }
+      },
+
       logout: () =>
         set({
           isAuthenticated: false,
@@ -137,13 +176,8 @@ export const useUserStore = create<UserState>()(
           email: "",
           avatar: null,
           auth0Id: null,
-          xp: 0,
-          level: 1,
-          streak: 0,
-          lastSolveDate: null,
-          solvedProblems: [],
-          totalSolves: 0,
-          acceptanceHistory: { correct: 0, total: 0 },
+          // Keep progress data in localStorage — it will be synced
+          // from backend on next login
         }),
     }),
     {

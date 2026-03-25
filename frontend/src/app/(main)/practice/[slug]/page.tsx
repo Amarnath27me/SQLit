@@ -135,6 +135,8 @@ export default function ProblemPage() {
       if (response.status === "accepted" && response.xp_earned > 0) {
         userStore.addXP(response.xp_earned);
         userStore.markSolved(problem.id);
+        // Persist to backend (fire-and-forget)
+        userStore.saveSolveToBackend(problem.id, response.xp_earned);
       }
     } catch (err) {
       store.setResult({
