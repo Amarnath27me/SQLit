@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/Badge";
 import { apiClient } from "@/lib/api";
+import { useUserStore } from "@/stores/useUserStore";
 import type { Difficulty, ProblemCategory, Dataset } from "@/types";
 
 interface ProblemListItem {
@@ -34,6 +35,7 @@ const DATASETS: { value: Dataset; label: string }[] = [
 ];
 
 export default function PracticePage() {
+  const solvedProblems = useUserStore((s) => s.solvedProblems);
   const [problems, setProblems] = useState<ProblemListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -96,6 +98,11 @@ export default function PracticePage() {
             {Object.keys(datasetCounts).length > 1 && (
               <span>
                 {" "}across {Object.keys(datasetCounts).length} datasets
+              </span>
+            )}
+            {solvedProblems.length > 0 && (
+              <span className="ml-2 text-emerald-500">
+                · {solvedProblems.length} solved
               </span>
             )}
           </p>
@@ -208,6 +215,7 @@ export default function PracticePage() {
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="border-b border-[var(--color-border)]">
+                <th className="w-8 pb-3 text-xs font-medium text-[var(--color-text-muted)]"></th>
                 <th className="pb-3 text-xs font-medium text-[var(--color-text-muted)]">#</th>
                 <th className="pb-3 text-xs font-medium text-[var(--color-text-muted)]">Title</th>
                 <th className="hidden md:table-cell pb-3 text-xs font-medium text-[var(--color-text-muted)]">Dataset</th>
@@ -216,11 +224,22 @@ export default function PracticePage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((problem, i) => (
+              {filtered.map((problem, i) => {
+                const isSolved = solvedProblems.includes(problem.id);
+                return (
                 <tr
                   key={problem.id}
                   className="border-b border-[var(--color-border)] transition-colors hover:bg-[var(--color-surface)]"
                 >
+                  <td className="py-3 w-8">
+                    {isSolved ? (
+                      <svg className="h-4 w-4 text-emerald-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    ) : (
+                      <span className="inline-block h-4 w-4" />
+                    )}
+                  </td>
                   <td className="py-3 text-[var(--color-text-muted)]">{i + 1}</td>
                   <td className="py-3">
                     <Link
@@ -244,7 +263,8 @@ export default function PracticePage() {
                     </span>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
           </div>
@@ -274,6 +294,13 @@ export default function PracticePage() {
                     className="flex items-center justify-between rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 transition-colors hover:border-[var(--color-accent)]"
                   >
                     <div className="flex items-center gap-3">
+                      {solvedProblems.includes(problem.id) ? (
+                        <svg className="h-4 w-4 flex-shrink-0 text-emerald-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : (
+                        <span className="inline-block h-4 w-4 flex-shrink-0 rounded-full border border-[var(--color-border)]" />
+                      )}
                       <span className="font-medium text-[var(--color-text-primary)]">
                         {problem.title}
                       </span>
