@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { useUser } from "@auth0/nextjs-auth0/client";
 import { useUserStore } from "@/stores/useUserStore";
@@ -57,24 +56,10 @@ export default function ProfilePage() {
   const name = user?.name || displayName;
   const picture = user?.picture || avatar;
 
-  // Generate activity data client-side only to avoid SSR hydration mismatch
-  const [activityData, setActivityData] = useState<Record<string, number>>({});
-  useEffect(() => {
-    const data: Record<string, number> = {};
-    const today = new Date();
-    for (let i = 0; i < 365; i++) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split("T")[0];
-      const hash = ((i * 2654435761) >>> 0) % 100;
-      const recencyBoost = Math.max(0, 1 - i / 365);
-      const threshold = 30 * recencyBoost + 5;
-      if (hash < threshold) {
-        data[dateStr] = (hash % 6) + 1;
-      }
-    }
-    setActivityData(data);
-  }, []);
+  // Build activity heatmap from real solved problems data
+  // solvedProblems only stores IDs, not dates — for now show empty until
+  // we persist solve timestamps. This avoids showing fake random data.
+  const activityData: Record<string, number> = {};
 
   return (
     <div className="mx-auto max-w-[var(--max-width-content)] px-6 py-8">
@@ -146,18 +131,18 @@ export default function ProfilePage() {
         <ActivityHeatmap data={activityData} />
       </div>
 
-      {/* Concept Mastery Badges */}
+      {/* Concept Mastery Badges — will be populated from backend data */}
       <div className="mt-8 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
         <ConceptBadges
           badges={[
-            { concept: "SELECT Basics", solved: 12, total: 15, icon: "📋" },
-            { concept: "WHERE Clauses", solved: 10, total: 15, icon: "🔍" },
-            { concept: "Aggregations", solved: 8, total: 15, icon: "📊" },
-            { concept: "JOINs", solved: 14, total: 20, icon: "🔗" },
-            { concept: "Subqueries", solved: 5, total: 15, icon: "🎯" },
-            { concept: "Window Functions", solved: 7, total: 15, icon: "🪟" },
-            { concept: "CTEs", solved: 3, total: 10, icon: "🔄" },
-            { concept: "Advanced", solved: 2, total: 20, icon: "⚡" },
+            { concept: "SELECT Basics", solved: 0, total: 22, icon: "S" },
+            { concept: "WHERE Clauses", solved: 0, total: 30, icon: "W" },
+            { concept: "Aggregations", solved: 0, total: 63, icon: "A" },
+            { concept: "JOINs", solved: 0, total: 60, icon: "J" },
+            { concept: "Subqueries", solved: 0, total: 48, icon: "Q" },
+            { concept: "Window Functions", solved: 0, total: 48, icon: "F" },
+            { concept: "CTEs", solved: 0, total: 26, icon: "C" },
+            { concept: "Advanced", solved: 0, total: 27, icon: "X" },
           ]}
         />
       </div>
