@@ -9,17 +9,17 @@ import { useUserStore } from "@/stores/useUserStore";
 
 const primaryLinks = [
   { href: "/practice", label: "Practice" },
-  { href: "/debug", label: "Debugging" },
+  { href: "/interview", label: "Interview" },
   { href: "/sandbox", label: "Sandbox" },
-  { href: "/analyzer", label: "Analyzer" },
+  { href: "/optimization", label: "Optimization" },
   { href: "/docs", label: "Docs" },
   { href: "/datasets", label: "Datasets" },
 ];
 
 const moreLinks = [
+  { href: "/debug", label: "Data Debugging" },
+  { href: "/analyzer", label: "Query Analyzer" },
   { href: "/challenge", label: "Challenge Mode" },
-  { href: "/interview", label: "Interview Prep" },
-  { href: "/optimization", label: "Query Optimization" },
   { href: "/db-design", label: "Database Design" },
   { href: "/leaderboard", label: "Leaderboard" },
 ];
