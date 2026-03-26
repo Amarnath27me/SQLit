@@ -69,6 +69,7 @@ export default function LeaderboardPage() {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [totalUsers, setTotalUsers] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     fetch("/api/leaderboard")
@@ -77,7 +78,7 @@ export default function LeaderboardPage() {
         setEntries(data.entries || []);
         setTotalUsers(data.total_users || 0);
       })
-      .catch(() => {})
+      .catch(() => setError("Failed to load leaderboard. Please try again later."))
       .finally(() => setLoading(false));
   }, []);
 
@@ -121,6 +122,10 @@ export default function LeaderboardPage() {
         {loading ? (
           <div className="mt-6 flex justify-center py-12">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--color-accent)] border-t-transparent" />
+          </div>
+        ) : error ? (
+          <div className="mt-6 rounded-xl border border-dashed border-red-500/30 bg-red-500/5 px-6 py-16 text-center">
+            <p className="text-sm text-red-400">{error}</p>
           </div>
         ) : entries.length === 0 ? (
           <div className="mt-6 rounded-xl border border-dashed border-[var(--color-border)] bg-[var(--color-surface)] px-6 py-16 text-center">

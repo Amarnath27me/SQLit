@@ -1,13 +1,6 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-
-// Only import auth0 if configured (Auth0 v4 env var names)
-const isAuth0Configured = Boolean(
-  process.env.AUTH0_SECRET &&
-  process.env.AUTH0_DOMAIN &&
-  process.env.AUTH0_CLIENT_ID &&
-  process.env.AUTH0_CLIENT_SECRET
-);
+import { isAuth0Configured } from "@/lib/auth0-config";
 
 export async function middleware(request: NextRequest) {
   // If Auth0 is not configured, skip all auth middleware

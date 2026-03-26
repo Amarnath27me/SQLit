@@ -135,7 +135,9 @@ export default function ProfilePage() {
           .reverse();
         setRecentSolved(solvedProblemsData);
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.warn("Failed to load problems for profile:", err);
+      });
   }, [solvedProblems]);
 
   return (

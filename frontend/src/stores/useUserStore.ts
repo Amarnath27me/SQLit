@@ -187,18 +187,17 @@ export const useUserStore = create<UserState>()(
 
           // Build activity data from solve timestamps
           const activity: Record<string, number> = { ...local.activityData };
+          // Count backend solves per day
+          const backendCounts: Record<string, number> = {};
           for (const s of solves) {
             if (s.solved_at) {
               const dateStr = s.solved_at.slice(0, 10);
-              activity[dateStr] = (activity[dateStr] || 0);
-              // Only set from backend if we don't already have a higher local count
-              const backendCount = solves.filter(
-                (solve) => solve.solved_at && solve.solved_at.slice(0, 10) === dateStr
-              ).length;
-              if (backendCount > (activity[dateStr] || 0)) {
-                activity[dateStr] = backendCount;
-              }
+              backendCounts[dateStr] = (backendCounts[dateStr] || 0) + 1;
             }
+          }
+          // Merge: take the higher of backend vs local for each day
+          for (const [dateStr, count] of Object.entries(backendCounts)) {
+            activity[dateStr] = Math.max(count, activity[dateStr] || 0);
           }
 
           // Use the higher value between backend and local for XP/streak

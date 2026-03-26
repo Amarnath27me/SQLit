@@ -1,7 +1,10 @@
 import logging
+import time
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 
 from app.core.config import settings
 from app.api import query, problems, health, progress
@@ -25,6 +28,19 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
     max_age=600,  # Cache preflight for 10 minutes
 )
+
+
+# Request logging middleware (added after CORS so it executes first)
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        start = time.perf_counter()
+        response = await call_next(request)
+        elapsed = (time.perf_counter() - start) * 1000
+        logger.info("%s %s → %d (%.0fms)", request.method, request.url.path, response.status_code, elapsed)
+        return response
+
+
+app.add_middleware(RequestLoggingMiddleware)
 
 # Routes
 app.include_router(health.router, tags=["health"])

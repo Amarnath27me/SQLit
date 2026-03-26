@@ -332,7 +332,7 @@ export default function SandboxPage() {
                     </table>
                     {result.rowCount > 10 && (
                       <p className="px-4 py-2 text-[10px] text-[var(--color-text-muted)]">
-                        Showing 10 of {result.rowCount} rows
+                        Showing 10 of {result.rowCount} rows. Add LIMIT to your query to control results.
                       </p>
                     )}
                   </>
