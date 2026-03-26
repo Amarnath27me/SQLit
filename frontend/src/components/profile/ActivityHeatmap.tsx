@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 
 interface ActivityHeatmapProps {
   data: Record<string, number>;
@@ -14,7 +14,6 @@ function getIntensity(count: number): number {
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 interface DayCell {
   date: string;
@@ -22,29 +21,24 @@ interface DayCell {
   dayOfWeek: number;
 }
 
-interface MonthLabel {
-  label: string;
-  weekIndex: number;
-}
-
-const CELL_SIZE = 12;
-const CELL_GAP = 3;
-const CELL_STEP = CELL_SIZE + CELL_GAP; // 15px per cell
-const LEFT_LABEL_WIDTH = 28;
+const CELL_SIZE = 11;
+const CELL_GAP = 2;
+const CELL_STEP = CELL_SIZE + CELL_GAP;
 
 function computeGrid(data: Record<string, number>) {
   const today = new Date();
   const start = new Date(today);
   start.setDate(start.getDate() - 364);
-  // Align to start of week (Sunday)
   start.setDate(start.getDate() - start.getDay());
 
   const weeks: DayCell[][] = [];
-  const monthLabels: MonthLabel[] = [];
   let currentWeek: DayCell[] = [];
   let lastMonth = -1;
   const cursor = new Date(start);
   let weekIndex = 0;
+
+  // Track month boundaries with their pixel positions
+  const monthPositions: { label: string; x: number }[] = [];
 
   while (cursor <= today || currentWeek.length > 0) {
     if (cursor > today && currentWeek.length > 0) {
@@ -56,8 +50,13 @@ function computeGrid(data: Record<string, number>) {
     const month = cursor.getMonth();
     const dayOfWeek = cursor.getDay();
 
-    if (month !== lastMonth && dayOfWeek <= 3) {
-      monthLabels.push({ label: MONTHS[month], weekIndex });
+    // Record month label at the start of each new month (only on Sunday)
+    if (month !== lastMonth && dayOfWeek === 0) {
+      monthPositions.push({ label: MONTHS[month], x: weekIndex * CELL_STEP });
+      lastMonth = month;
+    } else if (month !== lastMonth && currentWeek.length === 0) {
+      // First day of the grid or start of a new week close to month boundary
+      monthPositions.push({ label: MONTHS[month], x: weekIndex * CELL_STEP });
       lastMonth = month;
     }
 
@@ -72,21 +71,29 @@ function computeGrid(data: Record<string, number>) {
     cursor.setDate(cursor.getDate() + 1);
   }
 
+  // Deduplicate month labels that are too close
+  const filteredMonths: { label: string; x: number }[] = [];
+  for (const m of monthPositions) {
+    const last = filteredMonths[filteredMonths.length - 1];
+    if (!last || m.x - last.x >= CELL_STEP * 3) {
+      filteredMonths.push(m);
+    }
+  }
+
   const totalSolves = Object.values(data).reduce((sum, v) => sum + v, 0);
   const activeDays = Object.values(data).filter((v) => v > 0).length;
 
-  return { weeks, monthLabels, totalSolves, activeDays };
+  return { weeks, monthPositions: filteredMonths, totalSolves, activeDays };
 }
 
 function formatDate(dateStr: string): string {
-  const d = new Date(dateStr + "T00:00:00");
-  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+  const d = new Date(dateStr + "T12:00:00");
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
 export function ActivityHeatmap({ data }: ActivityHeatmapProps) {
   const [tooltip, setTooltip] = useState<{ date: string; count: number; x: number; y: number } | null>(null);
   const [grid, setGrid] = useState<ReturnType<typeof computeGrid> | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setGrid(computeGrid(data));
@@ -110,114 +117,92 @@ export function ActivityHeatmap({ data }: ActivityHeatmapProps) {
     );
   }
 
-  const { weeks, monthLabels, totalSolves, activeDays } = grid;
+  const { weeks, monthPositions, totalSolves, activeDays } = grid;
   const gridWidth = weeks.length * CELL_STEP;
+  const labelWidth = 30;
 
   return (
     <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Activity</h3>
         <p className="text-xs text-[var(--color-text-muted)]">
-          {totalSolves} solve{totalSolves !== 1 ? "s" : ""} in the last year &middot; {activeDays} active day{activeDays !== 1 ? "s" : ""}
+          {totalSolves} solve{totalSolves !== 1 ? "s" : ""} &middot; {activeDays} active day{activeDays !== 1 ? "s" : ""}
         </p>
       </div>
 
-      <div className="overflow-x-auto" ref={containerRef}>
-        <div style={{ minWidth: gridWidth + LEFT_LABEL_WIDTH + 16 }}>
-          {/* Month labels row */}
-          <div className="flex" style={{ paddingLeft: LEFT_LABEL_WIDTH, marginBottom: 6 }}>
-            {monthLabels.map((m, i) => {
-              // Only show label if there's enough space (skip if too close to next)
-              const nextWeekIndex = i < monthLabels.length - 1 ? monthLabels[i + 1].weekIndex : weeks.length;
-              const span = nextWeekIndex - m.weekIndex;
-              if (span < 2) return null;
-
-              return (
-                <span
-                  key={i}
-                  className="text-[11px] text-[var(--color-text-muted)] font-medium"
-                  style={{
-                    position: "absolute",
-                    left: LEFT_LABEL_WIDTH + m.weekIndex * CELL_STEP,
-                  }}
-                >
-                  {m.label}
-                </span>
-              );
-            })}
-            {/* Spacer for absolute-positioned labels */}
-            <div style={{ height: 16 }} />
-          </div>
-
-          {/* Grid + day labels */}
-          <div className="flex" style={{ position: "relative" }}>
-            {/* Day-of-week labels */}
-            <div className="shrink-0 flex flex-col" style={{ width: LEFT_LABEL_WIDTH }}>
-              {DAY_LABELS.map((label, i) => (
-                <div
-                  key={i}
-                  className="text-[10px] text-[var(--color-text-muted)] flex items-center"
-                  style={{ height: CELL_STEP }}
-                >
-                  {i % 2 === 1 ? label : ""}
-                </div>
-              ))}
-            </div>
-
-            {/* Heatmap grid */}
-            <div
-              className="flex"
-              style={{ gap: CELL_GAP }}
-              onMouseLeave={() => setTooltip(null)}
+      <div className="overflow-x-auto">
+        {/* Month labels */}
+        <div style={{ position: "relative", height: 18, marginLeft: labelWidth, width: gridWidth }}>
+          {monthPositions.map((m, i) => (
+            <span
+              key={i}
+              className="text-[10px] text-[var(--color-text-muted)]"
+              style={{ position: "absolute", left: m.x, top: 0 }}
             >
-              {weeks.map((week, wi) => (
-                <div key={wi} className="flex flex-col" style={{ gap: CELL_GAP }}>
-                  {Array.from({ length: 7 }).map((_, di) => {
-                    const day = week.find((d) => d.dayOfWeek === di);
-                    if (!day) {
-                      return (
-                        <div
-                          key={di}
-                          style={{ width: CELL_SIZE, height: CELL_SIZE }}
-                        />
-                      );
-                    }
+              {m.label}
+            </span>
+          ))}
+        </div>
 
-                    const intensity = getIntensity(day.count);
-                    return (
-                      <div
-                        key={di}
-                        className={`rounded-sm ${intensityColors[intensity]} cursor-pointer transition-all hover:ring-1 hover:ring-[var(--color-text-muted)]`}
-                        style={{ width: CELL_SIZE, height: CELL_SIZE }}
-                        onMouseEnter={(e) => {
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          setTooltip({
-                            date: day.date,
-                            count: day.count,
-                            x: rect.left + rect.width / 2,
-                            y: rect.top,
-                          });
-                        }}
-                      />
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Legend */}
-          <div className="mt-3 flex items-center justify-end gap-1.5">
-            <span className="text-[10px] text-[var(--color-text-muted)]">Less</span>
-            {intensityColors.map((c, i) => (
+        {/* Grid with day labels */}
+        <div style={{ display: "flex" }} onMouseLeave={() => setTooltip(null)}>
+          {/* Day labels */}
+          <div style={{ width: labelWidth, flexShrink: 0 }}>
+            {["", "Mon", "", "Wed", "", "Fri", ""].map((label, i) => (
               <div
                 key={i}
-                className={`rounded-sm ${c}`}
-                style={{ width: CELL_SIZE - 1, height: CELL_SIZE - 1 }}
-              />
+                className="text-[10px] text-[var(--color-text-muted)]"
+                style={{ height: CELL_STEP, display: "flex", alignItems: "center" }}
+              >
+                {label}
+              </div>
             ))}
-            <span className="text-[10px] text-[var(--color-text-muted)]">More</span>
           </div>
+
+          {/* Cells */}
+          <div style={{ display: "flex", gap: CELL_GAP }}>
+            {weeks.map((week, wi) => (
+              <div key={wi} style={{ display: "flex", flexDirection: "column", gap: CELL_GAP }}>
+                {Array.from({ length: 7 }).map((_, di) => {
+                  const day = week.find((d) => d.dayOfWeek === di);
+                  if (!day) {
+                    return <div key={di} style={{ width: CELL_SIZE, height: CELL_SIZE }} />;
+                  }
+
+                  const intensity = getIntensity(day.count);
+                  return (
+                    <div
+                      key={di}
+                      className={`rounded-sm ${intensityColors[intensity]} transition-all hover:ring-1 hover:ring-[var(--color-text-muted)]`}
+                      style={{ width: CELL_SIZE, height: CELL_SIZE, cursor: "pointer" }}
+                      onMouseEnter={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setTooltip({
+                          date: day.date,
+                          count: day.count,
+                          x: rect.left + rect.width / 2,
+                          y: rect.top,
+                        });
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Legend */}
+        <div className="mt-3 flex items-center justify-end gap-1.5">
+          <span className="text-[10px] text-[var(--color-text-muted)]">Less</span>
+          {intensityColors.map((c, i) => (
+            <div
+              key={i}
+              className={`rounded-sm ${c}`}
+              style={{ width: CELL_SIZE, height: CELL_SIZE }}
+            />
+          ))}
+          <span className="text-[10px] text-[var(--color-text-muted)]">More</span>
         </div>
       </div>
 

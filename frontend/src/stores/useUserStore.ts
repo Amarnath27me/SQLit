@@ -171,23 +171,47 @@ export const useUserStore = create<UserState>()(
           const data = await res.json();
 
           const solves: { problem_id: string; solved_at: string }[] = data.solved || [];
-          const solvedIds = solves.map((s) => s.problem_id);
+          const backendSolvedIds = solves.map((s) => s.problem_id);
+
+          // If backend has no data, keep localStorage data (don't wipe it)
+          const local = get();
+          if (backendSolvedIds.length === 0 && local.solvedProblems.length > 0) {
+            // Backend is empty but we have local data — skip overwrite.
+            // The local solves will be pushed to backend on next solve.
+            return;
+          }
+
+          // Merge: use backend as source of truth, but keep any local solves
+          // that haven't been synced yet
+          const mergedSolvedIds = [...new Set([...backendSolvedIds, ...local.solvedProblems])];
 
           // Build activity data from solve timestamps
-          const activity: Record<string, number> = {};
+          const activity: Record<string, number> = { ...local.activityData };
           for (const s of solves) {
             if (s.solved_at) {
               const dateStr = s.solved_at.slice(0, 10);
-              activity[dateStr] = (activity[dateStr] || 0) + 1;
+              activity[dateStr] = (activity[dateStr] || 0);
+              // Only set from backend if we don't already have a higher local count
+              const backendCount = solves.filter(
+                (solve) => solve.solved_at && solve.solved_at.slice(0, 10) === dateStr
+              ).length;
+              if (backendCount > (activity[dateStr] || 0)) {
+                activity[dateStr] = backendCount;
+              }
             }
           }
 
+          // Use the higher value between backend and local for XP/streak
+          const backendXP = data.xp ?? 0;
+          const finalXP = Math.max(backendXP, local.xp);
+
           set({
-            xp: data.xp ?? 0,
-            level: computeLevel(data.xp ?? 0),
-            streak: data.streak ?? 0,
-            solvedProblems: solvedIds,
-            totalSolves: solvedIds.length,
+            xp: finalXP,
+            level: computeLevel(finalXP),
+            streak: Math.max(data.streak ?? 0, local.streak),
+            solvedProblems: mergedSolvedIds,
+            totalSolves: mergedSolvedIds.length,
+            lastSolveDate: data.last_solve_date || local.lastSolveDate,
             activityData: activity,
           });
         } catch {
@@ -197,7 +221,7 @@ export const useUserStore = create<UserState>()(
 
       saveSolveToBackend: async (problemId, xpEarned) => {
         try {
-          await fetch("/api/progress/solve", {
+          const res = await fetch("/api/progress/solve", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -205,8 +229,11 @@ export const useUserStore = create<UserState>()(
               xp_earned: xpEarned,
             }),
           });
-        } catch {
-          // Backend unavailable — localStorage already has the data
+          if (!res.ok) {
+            console.warn("[SQLit] Failed to save solve to backend:", res.status);
+          }
+        } catch (err) {
+          console.warn("[SQLit] Backend unavailable for save:", err);
         }
       },
 

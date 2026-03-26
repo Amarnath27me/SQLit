@@ -258,6 +258,7 @@ class ProgressResponse(BaseModel):
     xp: int
     level: int
     streak: int
+    last_solve_date: str | None = None
     solved: list[SolvedEntry]
 
 
@@ -294,10 +295,14 @@ async def get_progress(x_user_sub: str | None = Header(None)):
     if record is None:
         record = _ensure_user_mem(sub)
 
+    last_solve = record.get("last_solve_date")
+    last_solve_str = last_solve.isoformat() if hasattr(last_solve, "isoformat") else last_solve
+
     return ProgressResponse(
         xp=record["xp"],
         level=_compute_level(record["xp"]),
         streak=record["streak"],
+        last_solve_date=last_solve_str,
         solved=[SolvedEntry(**s) for s in record["solved"]],
     )
 
@@ -320,6 +325,7 @@ async def record_solve(body: SolveRequest, x_user_sub: str | None = Header(None)
             xp=result["xp"],
             level=_compute_level(result["xp"]),
             streak=result["streak"],
+            last_solve_date=date.today().isoformat(),
             solved=[SolvedEntry(**s) for s in result["solved"]],
         )
 
@@ -357,6 +363,7 @@ async def record_solve(body: SolveRequest, x_user_sub: str | None = Header(None)
         xp=record["xp"],
         level=_compute_level(record["xp"]),
         streak=record["streak"],
+        last_solve_date=record.get("last_solve_date"),
         solved=[SolvedEntry(**s) for s in record["solved"]],
     )
 
