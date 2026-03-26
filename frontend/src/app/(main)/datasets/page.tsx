@@ -541,7 +541,7 @@ export default function DatasetsPage() {
                       {table.columns.map((col) => (
                         <div
                           key={col.name}
-                          className="flex items-center gap-2 rounded px-2 py-1 font-mono text-xs hover:bg-[var(--color-bg)]/50"
+                          className="flex items-center gap-2 rounded px-2 py-1 font-mono text-xs hover:bg-[var(--color-background)]/50"
                         >
                           <span className="w-20 shrink-0 text-[var(--color-text-primary)]">
                             {col.name}
@@ -576,7 +576,7 @@ export default function DatasetsPage() {
                     <div className="overflow-x-auto rounded border border-[var(--color-border)]">
                       <table className="w-full text-xs">
                         <thead>
-                          <tr className="border-b border-[var(--color-border)] bg-[var(--color-bg)]">
+                          <tr className="border-b border-[var(--color-border)] bg-[var(--color-background)]">
                             {table.columns.map((col) => (
                               <th
                                 key={col.name}

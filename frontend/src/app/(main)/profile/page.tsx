@@ -95,10 +95,10 @@ export default function ProfilePage() {
 
   // Fetch all problems to build per-category solve counts
   const [categoryStats, setCategoryStats] = useState<Record<string, { solved: number; total: number }>>({});
-  const [recentSolved, setRecentSolved] = useState<{ id: string; title: string; difficulty: string; category: string }[]>([]);
+  const [recentSolved, setRecentSolved] = useState<{ id: string; slug: string; title: string; difficulty: string; category: string }[]>([]);
 
   useEffect(() => {
-    apiClient<{ problems: { id: string; title: string; category: string; difficulty: string }[] }>("/api/problems")
+    apiClient<{ problems: { id: string; slug: string; title: string; category: string; difficulty: string }[] }>("/api/problems")
       .then((data) => {
         const problems = data.problems || [];
 
@@ -279,7 +279,7 @@ export default function ProfilePage() {
             {recentSolved.map((p) => (
               <Link
                 key={p.id}
-                href={`/practice/${p.id}`}
+                href={`/practice/${p.slug}`}
                 className="flex items-center justify-between rounded-lg border border-[var(--color-border)] px-4 py-3 transition-colors hover:border-[var(--color-accent)] hover:bg-[var(--color-accent)]/5"
               >
                 <span className="text-sm font-medium text-[var(--color-text-primary)]">{p.title}</span>

@@ -160,7 +160,7 @@ export default function LeaderboardPage() {
                     className={`border-b border-[var(--color-border)] last:border-0 ${
                       entry.rank <= 3
                         ? "bg-[var(--color-accent)]/5"
-                        : "bg-[var(--color-bg)]"
+                        : "bg-[var(--color-background)]"
                     }`}
                   >
                     <td className="px-4 py-3 text-center">

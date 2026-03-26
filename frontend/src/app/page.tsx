@@ -13,6 +13,9 @@ import {
   Layers,
 } from "lucide-react";
 import type { Metadata } from "next";
+import { Navbar } from "@/components/layout/Navbar";
+import { Footer } from "@/components/layout/Footer";
+import { AuthSync } from "@/components/auth/AuthSync";
 
 export const metadata: Metadata = {
   title: "SQLit — LeetCode for SQL & Data Engineering",
@@ -114,7 +117,10 @@ const datasets = [
 
 export default function LandingPage() {
   return (
-    <main className="flex min-h-screen flex-col items-center">
+    <div className="flex min-h-screen flex-col">
+      <AuthSync />
+      <Navbar />
+      <main className="flex-1 flex flex-col items-center">
       {/* ── Hero ── */}
       <section className="w-full px-6 pt-32 pb-20">
         <div className="mx-auto max-w-6xl text-center">
@@ -373,5 +379,7 @@ export default function LandingPage() {
         </div>
       </section>
     </main>
+      <Footer />
+    </div>
   );
 }

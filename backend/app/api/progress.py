@@ -26,16 +26,38 @@ def _compute_level(xp: int) -> int:
 
 
 # ---------------------------------------------------------------------------
-# PostgreSQL persistence (using sandbox DB with psycopg2)
+# PostgreSQL persistence (using sandbox DB with psycopg2 connection pool)
 # ---------------------------------------------------------------------------
 
 _db_initialized = False
+_pool = None
+
+
+def _get_pool():
+    """Get or create the psycopg2 connection pool (lazy init)."""
+    global _pool
+    if _pool is None:
+        from psycopg2.pool import SimpleConnectionPool
+        _pool = SimpleConnectionPool(
+            minconn=1,
+            maxconn=10,
+            dsn=settings.sandbox_database_url,
+            connect_timeout=3,
+        )
+    return _pool
 
 
 def _get_db_conn():
-    """Get a psycopg2 connection to the sandbox database."""
-    import psycopg2
-    return psycopg2.connect(settings.sandbox_database_url, connect_timeout=3)
+    """Get a connection from the pool."""
+    return _get_pool().getconn()
+
+
+def _put_db_conn(conn):
+    """Return a connection to the pool."""
+    try:
+        _get_pool().putconn(conn)
+    except Exception:
+        pass
 
 
 def _ensure_tables():
@@ -75,7 +97,7 @@ def _ensure_tables():
         """)
         conn.commit()
         cur.close()
-        conn.close()
+        _put_db_conn(conn)
         _db_initialized = True
         logger.info("Progress tables ready")
         return True
@@ -86,6 +108,7 @@ def _ensure_tables():
 
 def _load_user_progress(sub: str) -> dict[str, Any] | None:
     """Load user progress from PostgreSQL."""
+    conn = None
     try:
         if not _ensure_tables():
             return None
@@ -101,7 +124,7 @@ def _load_user_progress(sub: str) -> dict[str, Any] | None:
 
         if not user_row:
             cur.close()
-            conn.close()
+            _put_db_conn(conn)
             return {"xp": 0, "streak": 0, "last_solve_date": None, "solved": []}
 
         xp, streak, last_solve_date = user_row
@@ -121,7 +144,7 @@ def _load_user_progress(sub: str) -> dict[str, Any] | None:
         ]
 
         cur.close()
-        conn.close()
+        _put_db_conn(conn)
 
         return {
             "xp": xp,
@@ -131,11 +154,14 @@ def _load_user_progress(sub: str) -> dict[str, Any] | None:
         }
     except Exception as e:
         logger.warning("Failed to load progress for %s: %s", sub, e)
+        if conn:
+            _put_db_conn(conn)
         return None
 
 
 def _save_solve(sub: str, problem_id: str, xp_earned: int) -> dict[str, Any] | None:
     """Record a solve and update user progress in PostgreSQL."""
+    conn = None
     try:
         if not _ensure_tables():
             return None
@@ -155,9 +181,9 @@ def _save_solve(sub: str, problem_id: str, xp_earned: int) -> dict[str, Any] | N
             (sub,),
         )
 
-        # Get current user state
+        # Get current user state with row lock to prevent race conditions
         cur.execute(
-            "SELECT xp, streak, last_solve_date FROM sqlit_users WHERE auth0_sub = %s",
+            "SELECT xp, streak, last_solve_date FROM sqlit_users WHERE auth0_sub = %s FOR UPDATE",
             (sub,),
         )
         xp, streak, last_solve_date = cur.fetchone()
@@ -212,11 +238,17 @@ def _save_solve(sub: str, problem_id: str, xp_earned: int) -> dict[str, Any] | N
         ]
 
         cur.close()
-        conn.close()
+        _put_db_conn(conn)
 
         return {"xp": new_xp, "streak": streak, "solved": solves}
     except Exception as e:
         logger.warning("Failed to save solve for %s: %s", sub, e)
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            _put_db_conn(conn)
         return None
 
 
@@ -407,6 +439,7 @@ async def get_stats(x_user_sub: str | None = Header(None)):
 @router.get("/leaderboard", response_model=LeaderboardResponse)
 async def get_leaderboard():
     """Return top 50 users ranked by XP. Public endpoint — no auth required."""
+    conn = None
     try:
         if not _ensure_tables():
             return LeaderboardResponse(entries=[], total_users=0)
@@ -443,9 +476,11 @@ async def get_leaderboard():
             ))
 
         cur.close()
-        conn.close()
+        _put_db_conn(conn)
 
         return LeaderboardResponse(entries=entries, total_users=total_users)
     except Exception as e:
         logger.warning("Failed to load leaderboard: %s", e)
+        if conn:
+            _put_db_conn(conn)
         return LeaderboardResponse(entries=[], total_users=0)

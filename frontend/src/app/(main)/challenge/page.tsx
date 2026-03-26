@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { useUserStore } from "@/stores/useUserStore";
 
 /* ── Timer-based SQL challenge mode ── */
 
@@ -106,6 +107,8 @@ function formatTime(seconds: number) {
 }
 
 export default function ChallengePage() {
+  const markSolved = useUserStore((s) => s.markSolved);
+  const saveSolveToBackend = useUserStore((s) => s.saveSolveToBackend);
   const [activeChallenge, setActiveChallenge] = useState<Challenge | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [timeLeft, setTimeLeft] = useState(0);
@@ -257,9 +260,14 @@ export default function ChallengePage() {
               <div className="mt-4 flex gap-2">
                 <button
                   onClick={() => {
+                    const slug = activeChallenge.problemSlugs[currentIndex];
                     const next = [...solved];
                     next[currentIndex] = true;
                     setSolved(next);
+                    // Sync solve to store and backend
+                    markSolved(slug);
+                    const xp = activeChallenge.difficulty === "easy" ? 10 : activeChallenge.difficulty === "medium" ? 20 : 30;
+                    saveSolveToBackend(slug, xp);
                     if (currentIndex < activeChallenge.problemSlugs.length - 1) {
                       setCurrentIndex(currentIndex + 1);
                     } else {

@@ -101,7 +101,7 @@ export function ResizablePanel({
           className="flex shrink-0 border-b"
           style={{
             borderColor: "var(--color-border)",
-            backgroundColor: "var(--color-bg-secondary, var(--color-bg))",
+            backgroundColor: "var(--color-bg-secondary, var(--color-background))",
           }}
         >
           {tabs.map((tab) => (
