@@ -3,25 +3,21 @@
 import { useState } from "react";
 import { useUserStore } from "@/stores/useUserStore";
 import { useThemeStore } from "@/stores/useThemeStore";
-
-/* ------------------------------------------------------------------ */
-/*  Page                                                               */
-/* ------------------------------------------------------------------ */
+import { useSettingsStore } from "@/stores/useSettingsStore";
 
 export default function SettingsPage() {
   const { displayName, isAuthenticated } = useUserStore();
   const { theme, toggle } = useThemeStore();
+  const settings = useSettingsStore();
 
   const [name, setName] = useState(displayName);
-  const [editorFontSize, setEditorFontSize] = useState("14");
-  const [editorTabSize, setEditorTabSize] = useState("2");
-  const [defaultDialect, setDefaultDialect] = useState("postgresql");
-  const [defaultDataset, setDefaultDataset] = useState("ecommerce");
-  const [leaderboardOptIn, setLeaderboardOptIn] = useState(false);
   const [saved, setSaved] = useState(false);
 
   function handleSave() {
-    // TODO: persist to backend when auth is integrated
+    // Persist display name to user store
+    if (name !== displayName) {
+      useUserStore.setState({ displayName: name });
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
@@ -33,7 +29,6 @@ export default function SettingsPage() {
         Customize your SQLit experience.
       </p>
 
-      {/* Sections */}
       <div className="mt-8 space-y-8">
         {/* Profile */}
         <section>
@@ -57,17 +52,17 @@ export default function SettingsPage() {
                 <p className="text-xs text-[var(--color-text-muted)]">Show your profile on the public leaderboard</p>
               </div>
               <button
-                onClick={() => setLeaderboardOptIn(!leaderboardOptIn)}
+                onClick={() => settings.setLeaderboardOptIn(!settings.leaderboardOptIn)}
                 role="switch"
-                aria-checked={leaderboardOptIn}
+                aria-checked={settings.leaderboardOptIn}
                 aria-label="Toggle leaderboard visibility"
                 className={`relative h-6 w-11 rounded-full transition-colors ${
-                  leaderboardOptIn ? "bg-[var(--color-accent)]" : "bg-[var(--color-border)]"
+                  settings.leaderboardOptIn ? "bg-[var(--color-accent)]" : "bg-[var(--color-border)]"
                 }`}
               >
                 <span
                   className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                    leaderboardOptIn ? "translate-x-[22px]" : "translate-x-0.5"
+                    settings.leaderboardOptIn ? "translate-x-[22px]" : "translate-x-0.5"
                   }`}
                 />
               </button>
@@ -109,12 +104,12 @@ export default function SettingsPage() {
                 Font Size
               </label>
               <select
-                value={editorFontSize}
-                onChange={(e) => setEditorFontSize(e.target.value)}
+                value={settings.editorFontSize}
+                onChange={(e) => settings.setEditorFontSize(Number(e.target.value))}
                 aria-label="Font size"
                 className="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]"
               >
-                {["12", "13", "14", "15", "16", "18"].map((s) => (
+                {[12, 13, 14, 15, 16, 18].map((s) => (
                   <option key={s} value={s}>{s}px</option>
                 ))}
               </select>
@@ -124,12 +119,12 @@ export default function SettingsPage() {
                 Tab Size
               </label>
               <select
-                value={editorTabSize}
-                onChange={(e) => setEditorTabSize(e.target.value)}
+                value={settings.editorTabSize}
+                onChange={(e) => settings.setEditorTabSize(Number(e.target.value))}
                 aria-label="Tab size"
                 className="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]"
               >
-                {["2", "4"].map((s) => (
+                {[2, 4].map((s) => (
                   <option key={s} value={s}>{s} spaces</option>
                 ))}
               </select>
@@ -148,8 +143,8 @@ export default function SettingsPage() {
                 SQL Dialect
               </label>
               <select
-                value={defaultDialect}
-                onChange={(e) => setDefaultDialect(e.target.value)}
+                value={settings.defaultDialect}
+                onChange={(e) => settings.setDefaultDialect(e.target.value as "postgresql" | "mysql")}
                 className="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]"
               >
                 <option value="postgresql">PostgreSQL</option>
@@ -161,8 +156,8 @@ export default function SettingsPage() {
                 Default Dataset
               </label>
               <select
-                value={defaultDataset}
-                onChange={(e) => setDefaultDataset(e.target.value)}
+                value={settings.defaultDataset}
+                onChange={(e) => settings.setDefaultDataset(e.target.value)}
                 className="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]"
               >
                 <option value="ecommerce">E-Commerce</option>
