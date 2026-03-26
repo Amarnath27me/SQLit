@@ -200,6 +200,14 @@ export default function ProblemPage() {
   const explanationStr = typeof problem.explanation === "string" ? problem.explanation : "";
   const approachStr = Array.isArray(problem.approach) ? problem.approach.join("\n") : (problem.approach ?? "");
 
+  // Compute next unsolved problem
+  const currentIndex = allProblems.findIndex((p) => p.id === problem.id);
+  const nextProblem = allProblems.find(
+    (p, i) => i > currentIndex && !userStore.solvedProblems.includes(p.id)
+  ) || allProblems.find(
+    (p) => !userStore.solvedProblems.includes(p.id) && p.id !== problem.id
+  );
+
   return (
     <div className="h-[calc(100vh-3.5rem)]">
       <ResizablePanel
@@ -242,6 +250,12 @@ export default function ProblemPage() {
             isSolved={store.status === "accepted"}
             streak={userStore.streak}
             problemTitle={problem.title}
+            problemId={problem.id}
+            nextProblemSlug={nextProblem?.slug}
+            note={userStore.notes[problem.id] || ""}
+            isFlagged={userStore.flaggedProblems.includes(problem.id)}
+            onNoteChange={(note) => userStore.setNote(problem.id, note)}
+            onToggleFlag={() => userStore.toggleFlag(problem.id)}
             recommendations={
               allProblems.length > 0 && (
                 <NextProblemRecommender

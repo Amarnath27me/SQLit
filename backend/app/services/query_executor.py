@@ -350,7 +350,7 @@ async def execute_sandboxed_query(
     dataset: str,
     dialect: str,
     timeout_seconds: int = 3,
-    max_rows: int = 1000,
+    max_rows: int = 10,
 ) -> dict:
     """Execute a query in an isolated sandbox. Tries PostgreSQL first, falls back to SQLite."""
     loop = asyncio.get_event_loop()

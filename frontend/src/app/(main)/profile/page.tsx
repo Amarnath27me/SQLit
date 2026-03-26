@@ -50,16 +50,11 @@ const CONCEPT_BADGES = [
 
 export default function ProfilePage() {
   const { user } = useUser();
-  const { displayName, xp, level, streak, solvedProblems, avatar } = useUserStore();
+  const { displayName, xp, level, streak, solvedProblems, avatar, activityData } = useUserStore();
   const progress = xpProgress(xp);
   const solved = solvedProblems.length;
   const name = user?.name || displayName;
   const picture = user?.picture || avatar;
-
-  // Build activity heatmap from real solved problems data
-  // solvedProblems only stores IDs, not dates — for now show empty until
-  // we persist solve timestamps. This avoids showing fake random data.
-  const activityData: Record<string, number> = {};
 
   return (
     <div className="mx-auto max-w-[var(--max-width-content)] px-6 py-8">

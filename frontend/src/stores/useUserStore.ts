@@ -47,6 +47,9 @@ interface UserState {
   solvedProblems: string[];
   totalSolves: number;
   acceptanceHistory: { correct: number; total: number };
+  activityData: Record<string, number>; // date string → solve count
+  notes: Record<string, string>; // problemId → note text
+  flaggedProblems: string[]; // problem IDs flagged for review
 
   // Computed
   readonly acceptanceRate: number;
@@ -55,6 +58,8 @@ interface UserState {
   addXP: (amount: number) => void;
   markSolved: (problemId: string) => void;
   recordAttempt: (correct: boolean) => void;
+  setNote: (problemId: string, note: string) => void;
+  toggleFlag: (problemId: string) => void;
   syncFromAuth0: (user: { name?: string; email?: string; picture?: string; sub?: string }) => void;
   syncFromBackend: () => Promise<void>;
   saveSolveToBackend: (problemId: string, xpEarned: number) => Promise<void>;
@@ -76,6 +81,9 @@ export const useUserStore = create<UserState>()(
       solvedProblems: [],
       totalSolves: 0,
       acceptanceHistory: { correct: 0, total: 0 },
+      activityData: {},
+      notes: {},
+      flaggedProblems: [],
 
       get acceptanceRate() {
         const { correct, total } = get().acceptanceHistory;
@@ -95,6 +103,7 @@ export const useUserStore = create<UserState>()(
           if (state.solvedProblems.includes(problemId)) return state;
 
           const now = new Date().toISOString();
+          const todayStr = now.slice(0, 10);
           let newStreak = state.streak;
 
           if (!state.lastSolveDate) {
@@ -107,11 +116,16 @@ export const useUserStore = create<UserState>()(
             newStreak = 1;
           }
 
+          // Update activity data
+          const newActivity = { ...state.activityData };
+          newActivity[todayStr] = (newActivity[todayStr] || 0) + 1;
+
           return {
             solvedProblems: [...state.solvedProblems, problemId],
             totalSolves: state.totalSolves + 1,
             streak: newStreak,
             lastSolveDate: now,
+            activityData: newActivity,
           };
         }),
 
@@ -121,6 +135,24 @@ export const useUserStore = create<UserState>()(
             correct: state.acceptanceHistory.correct + (correct ? 1 : 0),
             total: state.acceptanceHistory.total + 1,
           },
+        })),
+
+      setNote: (problemId, note) =>
+        set((state) => {
+          const newNotes = { ...state.notes };
+          if (note.trim()) {
+            newNotes[problemId] = note;
+          } else {
+            delete newNotes[problemId];
+          }
+          return { notes: newNotes };
+        }),
+
+      toggleFlag: (problemId) =>
+        set((state) => ({
+          flaggedProblems: state.flaggedProblems.includes(problemId)
+            ? state.flaggedProblems.filter((id) => id !== problemId)
+            : [...state.flaggedProblems, problemId],
         })),
 
       syncFromAuth0: (user) =>
@@ -138,9 +170,17 @@ export const useUserStore = create<UserState>()(
           if (!res.ok) return;
           const data = await res.json();
 
-          const solvedIds = (data.solved || []).map(
-            (s: { problem_id: string }) => s.problem_id
-          );
+          const solves: { problem_id: string; solved_at: string }[] = data.solved || [];
+          const solvedIds = solves.map((s) => s.problem_id);
+
+          // Build activity data from solve timestamps
+          const activity: Record<string, number> = {};
+          for (const s of solves) {
+            if (s.solved_at) {
+              const dateStr = s.solved_at.slice(0, 10);
+              activity[dateStr] = (activity[dateStr] || 0) + 1;
+            }
+          }
 
           set({
             xp: data.xp ?? 0,
@@ -148,6 +188,7 @@ export const useUserStore = create<UserState>()(
             streak: data.streak ?? 0,
             solvedProblems: solvedIds,
             totalSolves: solvedIds.length,
+            activityData: activity,
           });
         } catch {
           // Backend unavailable — keep localStorage data
@@ -190,6 +231,9 @@ export const useUserStore = create<UserState>()(
         solvedProblems: state.solvedProblems,
         totalSolves: state.totalSolves,
         acceptanceHistory: state.acceptanceHistory,
+        activityData: state.activityData,
+        notes: state.notes,
+        flaggedProblems: state.flaggedProblems,
       }),
     }
   )

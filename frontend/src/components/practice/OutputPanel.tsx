@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { ResultTable } from "./ResultTable";
 import { ShareCard } from "./ShareCard";
 import { Mascot } from "@/components/ui/Mascot";
@@ -35,6 +36,12 @@ interface OutputPanelProps {
   streak?: number;
   recommendations?: React.ReactNode;
   problemTitle?: string;
+  problemId?: string;
+  nextProblemSlug?: string;
+  note?: string;
+  isFlagged?: boolean;
+  onNoteChange?: (note: string) => void;
+  onToggleFlag?: () => void;
 }
 
 /* ── Query comparison helper ───────────────────────────────── */
@@ -113,9 +120,17 @@ export function OutputPanel({
   streak = 0,
   recommendations,
   problemTitle = "",
+  problemId,
+  nextProblemSlug,
+  note = "",
+  isFlagged = false,
+  onNoteChange,
+  onToggleFlag,
 }: OutputPanelProps) {
   const [hintLevel, setHintLevel] = useState(0);
   const [activeTab, setActiveTab] = useState<"output" | "explanation" | "approach" | "mistakes" | "approaches">("output");
+  const [showNotes, setShowNotes] = useState(false);
+  const [noteText, setNoteText] = useState(note);
   const [hasViewedExplanation, setHasViewedExplanation] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
 
@@ -123,12 +138,18 @@ export function OutputPanel({
   const maxHints = difficulty === "easy" ? Math.min(hints.length, 4) : difficulty === "medium" ? Math.min(hints.length, 3) : Math.min(hints.length, 2);
   const availableHints = hints.slice(0, maxHints);
 
+  // Sync note text when prop changes (e.g., navigating between problems)
+  useEffect(() => {
+    setNoteText(note);
+  }, [note, problemId]);
+
   // Reset hint level and explanation viewed state when status changes back to idle
   useEffect(() => {
     if (status === "idle") {
       setHintLevel(0);
       setHasViewedExplanation(false);
       setShowCelebration(false);
+      setShowNotes(false);
     }
   }, [status]);
 
@@ -269,6 +290,67 @@ export function OutputPanel({
                   executionTimeMs={userResult.executionTimeMs}
                   streak={streak}
                 />
+
+                {/* Action buttons: Next, Notes, Flag */}
+                <div className="flex items-center gap-2">
+                  {nextProblemSlug && (
+                    <Link
+                      href={`/practice/${nextProblemSlug}`}
+                      className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-[var(--color-accent)] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)]"
+                    >
+                      Next Problem
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                      </svg>
+                    </Link>
+                  )}
+                  <button
+                    onClick={() => setShowNotes(!showNotes)}
+                    className={`flex items-center gap-1.5 rounded-lg border px-3 py-2.5 text-xs font-medium transition-colors ${
+                      showNotes || note
+                        ? "border-[var(--color-accent)]/40 bg-[var(--color-accent)]/5 text-[var(--color-accent)]"
+                        : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+                    }`}
+                  >
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+                    </svg>
+                    Notes
+                  </button>
+                  <button
+                    onClick={onToggleFlag}
+                    className={`flex items-center gap-1.5 rounded-lg border px-3 py-2.5 text-xs font-medium transition-colors ${
+                      isFlagged
+                        ? "border-amber-500/40 bg-amber-500/5 text-amber-500"
+                        : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-amber-500 hover:text-amber-500"
+                    }`}
+                  >
+                    <svg className="h-3.5 w-3.5" fill={isFlagged ? "currentColor" : "none"} viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v1.5M3 21v-6m0 0 2.77-.693a9 9 0 0 1 6.208.682l.108.054a9 9 0 0 0 6.086.71l3.114-.732a48.524 48.524 0 0 1-.005-10.499l-3.11.732a9 9 0 0 1-6.085-.711l-.108-.054a9 9 0 0 0-6.208-.682L3 4.5M3 15V4.5" />
+                    </svg>
+                    {isFlagged ? "Flagged" : "Flag"}
+                  </button>
+                </div>
+
+                {/* Notes editor */}
+                {showNotes && (
+                  <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] p-3">
+                    <label className="mb-1.5 block text-xs font-medium text-[var(--color-text-muted)]">
+                      Your Notes
+                    </label>
+                    <textarea
+                      value={noteText}
+                      onChange={(e) => setNoteText(e.target.value)}
+                      onBlur={() => onNoteChange?.(noteText)}
+                      placeholder="Write notes about this problem..."
+                      className="w-full resize-none rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
+                      rows={3}
+                    />
+                    <p className="mt-1 text-[10px] text-[var(--color-text-muted)]">
+                      Notes are saved locally and persist across sessions.
+                    </p>
+                  </div>
+                )}
 
                 {/* Prompt to view explanation */}
                 {!hasViewedExplanation && (
