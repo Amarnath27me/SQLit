@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useUserStore } from "@/stores/useUserStore";
 
@@ -115,6 +115,41 @@ export default function ChallengePage() {
   const [solved, setSolved] = useState<boolean[]>([]);
   const [started, setStarted] = useState(false);
   const [finished, setFinished] = useState(false);
+  const restored = useRef(false);
+
+  // Restore challenge state from sessionStorage on mount
+  useEffect(() => {
+    if (restored.current) return;
+    restored.current = true;
+    try {
+      const saved = sessionStorage.getItem("sqlit-challenge");
+      if (!saved) return;
+      const s = JSON.parse(saved);
+      const challenge = CHALLENGES.find((c) => c.id === s.challengeId);
+      if (challenge && s.timeLeft > 0 && !s.finished) {
+        setActiveChallenge(challenge);
+        setCurrentIndex(s.currentIndex || 0);
+        setTimeLeft(s.timeLeft);
+        setSolved(s.solved || []);
+        setStarted(true);
+        setFinished(false);
+      }
+    } catch { /* ignore corrupt data */ }
+  }, []);
+
+  // Persist challenge state to sessionStorage
+  useEffect(() => {
+    if (!activeChallenge || !started) return;
+    try {
+      sessionStorage.setItem("sqlit-challenge", JSON.stringify({
+        challengeId: activeChallenge.id,
+        currentIndex,
+        timeLeft,
+        solved,
+        finished,
+      }));
+    } catch { /* quota exceeded */ }
+  }, [activeChallenge, currentIndex, timeLeft, solved, started, finished]);
 
   useEffect(() => {
     if (!started || finished || timeLeft <= 0) return;
@@ -186,7 +221,7 @@ export default function ChallengePage() {
         <div className="mt-6">
           <div className="mb-4 flex items-center justify-between">
             <button
-              onClick={() => { setActiveChallenge(null); setStarted(false); setFinished(false); }}
+              onClick={() => { sessionStorage.removeItem("sqlit-challenge"); setActiveChallenge(null); setStarted(false); setFinished(false); }}
               className="text-xs font-medium text-[var(--color-accent)] hover:underline"
             >
               ← Exit challenge
@@ -238,7 +273,7 @@ export default function ChallengePage() {
                   Retry
                 </button>
                 <button
-                  onClick={() => { setActiveChallenge(null); setStarted(false); setFinished(false); }}
+                  onClick={() => { sessionStorage.removeItem("sqlit-challenge"); setActiveChallenge(null); setStarted(false); setFinished(false); }}
                   className="rounded-md border border-[var(--color-border)] px-4 py-2 text-sm font-medium text-[var(--color-text-secondary)]"
                 >
                   Back to challenges

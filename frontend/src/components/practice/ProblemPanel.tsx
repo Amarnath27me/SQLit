@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Badge } from "@/components/ui/Badge";
 import { SchemaViewer } from "./SchemaViewer";
 import type { Difficulty } from "@/types";
@@ -48,6 +49,9 @@ export function ProblemPanel({
     <div className="flex h-full flex-col">
       {/* Header */}
       <div className="border-b border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+        <Link href="/practice" className="mb-2 inline-flex items-center gap-1 text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors">
+          <span>&larr;</span> All Problems
+        </Link>
         <div className="flex items-center gap-2">
           <Badge variant={difficulty}>{difficulty}</Badge>
           <span className="text-xs text-[var(--color-text-muted)]">

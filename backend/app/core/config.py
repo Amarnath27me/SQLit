@@ -20,6 +20,7 @@ _DEFAULT_ORIGINS = [
     "http://localhost:3001",
     "https://sqlit.dev",
     "https://www.sqlit.dev",
+    "https://sqlit-nu.vercel.app",
 ]
 
 

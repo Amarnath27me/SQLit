@@ -11,7 +11,7 @@ from datetime import date, datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core.config import settings
 
@@ -263,18 +263,22 @@ def _save_solve(sub: str, problem_id: str, xp_earned: int) -> dict[str, Any] | N
 # In-memory fallback (when DB is unavailable)
 # ---------------------------------------------------------------------------
 
+import threading
+
 _user_progress: dict[str, dict[str, Any]] = {}
+_mem_lock = threading.Lock()
 
 
 def _ensure_user_mem(sub: str) -> dict[str, Any]:
-    if sub not in _user_progress:
-        _user_progress[sub] = {
-            "xp": 0,
-            "streak": 0,
-            "last_solve_date": None,
-            "solved": [],
-        }
-    return _user_progress[sub]
+    with _mem_lock:
+        if sub not in _user_progress:
+            _user_progress[sub] = {
+                "xp": 0,
+                "streak": 0,
+                "last_solve_date": None,
+                "solved": [],
+            }
+        return _user_progress[sub]
 
 
 # ---------------------------------------------------------------------------
@@ -283,8 +287,8 @@ def _ensure_user_mem(sub: str) -> dict[str, Any]:
 
 
 class SolveRequest(BaseModel):
-    problem_id: str
-    xp_earned: int
+    problem_id: str = Field(max_length=100)
+    xp_earned: int = Field(ge=0, le=1000)
 
 
 class SolvedEntry(BaseModel):

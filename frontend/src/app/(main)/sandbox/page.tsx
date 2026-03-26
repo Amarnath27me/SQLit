@@ -49,7 +49,7 @@ function saveHistory(items: QueryHistoryItem[]) {
 }
 
 export default function SandboxPage() {
-  const [query, setQuery] = useState("SELECT * FROM ");
+  const [query, setQuery] = useState("SELECT * FROM customers LIMIT 10;");
   const [dataset, setDataset] = useState("ecommerce");
   const [result, setResult] = useState<QueryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -96,6 +96,7 @@ export default function SandboxPage() {
   }, []);
 
   const clearHistory = useCallback(() => {
+    if (!confirm("Clear all non-bookmarked queries from history?")) return;
     setHistory((prev) => {
       // Keep bookmarked items
       const bookmarked = prev.filter((item) => item.bookmarked);
