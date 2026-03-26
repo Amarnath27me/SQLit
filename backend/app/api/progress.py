@@ -270,6 +270,20 @@ class StatsResponse(BaseModel):
     xp_to_next_level: int
 
 
+class LeaderboardEntry(BaseModel):
+    rank: int
+    display_name: str
+    xp: int
+    level: int
+    total_solved: int
+    streak: int
+
+
+class LeaderboardResponse(BaseModel):
+    entries: list[LeaderboardEntry]
+    total_users: int
+
+
 # ---------------------------------------------------------------------------
 # Endpoints — use X-User-Sub header (set by Next.js proxy from Auth0 session)
 # ---------------------------------------------------------------------------
@@ -388,3 +402,50 @@ async def get_stats(x_user_sub: str | None = Header(None)):
         total_solved=len(record["solved"]),
         xp_to_next_level=xp_to_next,
     )
+
+
+@router.get("/leaderboard", response_model=LeaderboardResponse)
+async def get_leaderboard():
+    """Return top 50 users ranked by XP. Public endpoint — no auth required."""
+    try:
+        if not _ensure_tables():
+            return LeaderboardResponse(entries=[], total_users=0)
+
+        conn = _get_db_conn()
+        cur = conn.cursor()
+
+        # Get total user count
+        cur.execute("SELECT COUNT(*) FROM sqlit_users WHERE xp > 0")
+        total_users = cur.fetchone()[0]
+
+        # Get top 50 users with their solve counts
+        cur.execute("""
+            SELECT u.display_name, u.xp, u.streak,
+                   COUNT(s.id) AS total_solved
+            FROM sqlit_users u
+            LEFT JOIN sqlit_solves s ON u.auth0_sub = s.auth0_sub
+            WHERE u.xp > 0
+            GROUP BY u.auth0_sub, u.display_name, u.xp, u.streak
+            ORDER BY u.xp DESC
+            LIMIT 50
+        """)
+
+        entries = []
+        for rank, row in enumerate(cur.fetchall(), start=1):
+            display_name, xp, streak, total_solved = row
+            entries.append(LeaderboardEntry(
+                rank=rank,
+                display_name=display_name or f"User #{rank}",
+                xp=xp,
+                level=_compute_level(xp),
+                total_solved=total_solved,
+                streak=streak,
+            ))
+
+        cur.close()
+        conn.close()
+
+        return LeaderboardResponse(entries=entries, total_users=total_users)
+    except Exception as e:
+        logger.warning("Failed to load leaderboard: %s", e)
+        return LeaderboardResponse(entries=[], total_users=0)

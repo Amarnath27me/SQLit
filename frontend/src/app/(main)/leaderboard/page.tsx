@@ -1,9 +1,23 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useUserStore } from "@/stores/useUserStore";
 
 /* ------------------------------------------------------------------ */
-/*  Stats card component                                               */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
+
+interface LeaderboardEntry {
+  rank: number;
+  display_name: string;
+  xp: number;
+  level: number;
+  total_solved: number;
+  streak: number;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Stats card                                                         */
 /* ------------------------------------------------------------------ */
 
 function StatCard({
@@ -30,6 +44,21 @@ function StatCard({
 }
 
 /* ------------------------------------------------------------------ */
+/*  Rank badge                                                         */
+/* ------------------------------------------------------------------ */
+
+function RankBadge({ rank }: { rank: number }) {
+  if (rank === 1) return <span className="text-lg">🥇</span>;
+  if (rank === 2) return <span className="text-lg">🥈</span>;
+  if (rank === 3) return <span className="text-lg">🥉</span>;
+  return (
+    <span className="text-sm font-medium text-[var(--color-text-muted)]">
+      {rank}
+    </span>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -37,13 +66,29 @@ export default function LeaderboardPage() {
   const { xp, level, streak, solvedProblems, totalSolves, acceptanceRate } =
     useUserStore();
 
+  const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
+  const [totalUsers, setTotalUsers] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/leaderboard")
+      .then((res) => res.json())
+      .then((data) => {
+        setEntries(data.entries || []);
+        setTotalUsers(data.total_users || 0);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
   return (
     <div className="mx-auto max-w-[var(--max-width-content)] px-6 py-8">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold">Leaderboard</h1>
         <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
-          Track your SQL mastery. Community rankings coming soon.
+          Compete with other SQL practitioners.
+          {totalUsers > 0 && ` ${totalUsers} active users.`}
         </p>
       </div>
 
@@ -67,45 +112,81 @@ export default function LeaderboardPage() {
         </div>
       </div>
 
-      {/* Coming soon */}
-      <div className="mt-12 flex flex-col items-center rounded-xl border border-dashed border-[var(--color-border)] bg-[var(--color-surface)] px-6 py-16 text-center">
-        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--color-accent)]/10">
-          <svg
-            className="h-7 w-7 text-[var(--color-accent)]"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={1.5}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-4.5A3.375 3.375 0 0012.75 11h-.5A3.375 3.375 0 009 14.25v4.5m7.5-10.5a3 3 0 11-6 0 3 3 0 016 0z"
-            />
-          </svg>
-        </div>
-        <h3 className="mt-4 text-lg font-semibold text-[var(--color-text-primary)]">
-          Community Rankings Coming Soon
-        </h3>
-        <p className="mt-2 max-w-md text-sm text-[var(--color-text-secondary)]">
-          We&apos;re building a real-time leaderboard where you can compete with
-          other SQL practitioners. Your progress is being tracked — you&apos;ll
-          be ranked automatically once it launches.
-        </p>
-        <div className="mt-6 flex flex-wrap justify-center gap-3 text-xs text-[var(--color-text-muted)]">
-          <span className="rounded-full border border-[var(--color-border)] px-3 py-1">
-            Global rankings
-          </span>
-          <span className="rounded-full border border-[var(--color-border)] px-3 py-1">
-            Weekly challenges
-          </span>
-          <span className="rounded-full border border-[var(--color-border)] px-3 py-1">
-            Category leaders
-          </span>
-          <span className="rounded-full border border-[var(--color-border)] px-3 py-1">
-            Streak champions
-          </span>
-        </div>
+      {/* Rankings table */}
+      <div className="mt-10">
+        <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
+          Global Rankings
+        </h2>
+
+        {loading ? (
+          <div className="mt-6 flex justify-center py-12">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--color-accent)] border-t-transparent" />
+          </div>
+        ) : entries.length === 0 ? (
+          <div className="mt-6 rounded-xl border border-dashed border-[var(--color-border)] bg-[var(--color-surface)] px-6 py-16 text-center">
+            <p className="text-sm text-[var(--color-text-secondary)]">
+              No rankings yet. Solve problems to appear on the leaderboard!
+            </p>
+          </div>
+        ) : (
+          <div className="mt-4 overflow-hidden rounded-xl border border-[var(--color-border)]">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+                  <th className="px-4 py-3 text-left font-medium text-[var(--color-text-muted)] w-16">
+                    Rank
+                  </th>
+                  <th className="px-4 py-3 text-left font-medium text-[var(--color-text-muted)]">
+                    User
+                  </th>
+                  <th className="px-4 py-3 text-right font-medium text-[var(--color-text-muted)]">
+                    XP
+                  </th>
+                  <th className="hidden px-4 py-3 text-right font-medium text-[var(--color-text-muted)] sm:table-cell">
+                    Level
+                  </th>
+                  <th className="hidden px-4 py-3 text-right font-medium text-[var(--color-text-muted)] md:table-cell">
+                    Solved
+                  </th>
+                  <th className="hidden px-4 py-3 text-right font-medium text-[var(--color-text-muted)] md:table-cell">
+                    Streak
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((entry) => (
+                  <tr
+                    key={entry.rank}
+                    className={`border-b border-[var(--color-border)] last:border-0 ${
+                      entry.rank <= 3
+                        ? "bg-[var(--color-accent)]/5"
+                        : "bg-[var(--color-bg)]"
+                    }`}
+                  >
+                    <td className="px-4 py-3 text-center">
+                      <RankBadge rank={entry.rank} />
+                    </td>
+                    <td className="px-4 py-3 font-medium text-[var(--color-text-primary)]">
+                      {entry.display_name}
+                    </td>
+                    <td className="px-4 py-3 text-right font-semibold text-[var(--color-accent)]">
+                      {entry.xp.toLocaleString()}
+                    </td>
+                    <td className="hidden px-4 py-3 text-right text-[var(--color-text-secondary)] sm:table-cell">
+                      {entry.level}
+                    </td>
+                    <td className="hidden px-4 py-3 text-right text-[var(--color-text-secondary)] md:table-cell">
+                      {entry.total_solved}
+                    </td>
+                    <td className="hidden px-4 py-3 text-right text-[var(--color-text-secondary)] md:table-cell">
+                      {entry.streak > 0 ? `${entry.streak}d` : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
