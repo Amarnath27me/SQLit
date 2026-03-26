@@ -1,9 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useUser } from "@auth0/nextjs-auth0/client";
 import { useUserStore } from "@/stores/useUserStore";
-import { Badge } from "@/components/ui/Badge";
+import { apiClient } from "@/lib/api";
 import { ConceptBadges } from "@/components/profile/ConceptBadges";
 import { ActivityHeatmap } from "@/components/profile/ActivityHeatmap";
 
@@ -48,6 +49,42 @@ const CONCEPT_BADGES = [
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/*  Category mapping                                                    */
+/* ------------------------------------------------------------------ */
+
+const CATEGORY_CONFIG = [
+  { key: "select", label: "SELECT Basics", icon: "S" },
+  { key: "where", label: "WHERE Clauses", icon: "W" },
+  { key: "aggregation", label: "Aggregations", icon: "A" },
+  { key: "joins", label: "JOINs", icon: "J" },
+  { key: "subqueries", label: "Subqueries", icon: "Q" },
+  { key: "window-functions", label: "Window Functions", icon: "F" },
+  { key: "cte", label: "CTEs", icon: "C" },
+  { key: "advanced", label: "Advanced", icon: "X" },
+] as const;
+
+/** Normalise category strings from the backend into canonical keys */
+function normalizeCategory(raw: string): string {
+  const lower = raw.toLowerCase().replace(/_/g, "-").trim();
+  if (lower.startsWith("interview")) {
+    // "Interview — Aggregation" → "aggregation"
+    const after = lower.split("—").pop()?.trim() ?? lower;
+    return normalizeCategory(after);
+  }
+  if (lower === "join") return "joins";
+  if (lower === "subquery") return "subqueries";
+  if (lower.startsWith("window")) return "window-functions";
+  if (lower === "group by" || lower === "group-by" || lower === "order by") return "aggregation";
+  if (CATEGORY_CONFIG.some((c) => c.key === lower)) return lower;
+  return "advanced";
+}
+
+interface ProblemListItem {
+  id: string;
+  category: string;
+}
+
 export default function ProfilePage() {
   const { user } = useUser();
   const { displayName, xp, level, streak, solvedProblems, avatar, activityData } = useUserStore();
@@ -55,6 +92,51 @@ export default function ProfilePage() {
   const solved = solvedProblems.length;
   const name = user?.name || displayName;
   const picture = user?.picture || avatar;
+
+  // Fetch all problems to build per-category solve counts
+  const [categoryStats, setCategoryStats] = useState<Record<string, { solved: number; total: number }>>({});
+  const [recentSolved, setRecentSolved] = useState<{ id: string; title: string; difficulty: string; category: string }[]>([]);
+
+  useEffect(() => {
+    apiClient<{ problems: { id: string; title: string; category: string; difficulty: string }[] }>("/api/problems")
+      .then((data) => {
+        const problems = data.problems || [];
+
+        // Count totals per category
+        const totals: Record<string, number> = {};
+        const problemCategoryMap: Record<string, string> = {};
+        for (const p of problems) {
+          const cat = normalizeCategory(p.category);
+          totals[cat] = (totals[cat] || 0) + 1;
+          problemCategoryMap[p.id] = cat;
+        }
+
+        // Count solved per category
+        const solvedCounts: Record<string, number> = {};
+        const solvedSet = new Set(solvedProblems);
+        for (const p of problems) {
+          if (solvedSet.has(p.id)) {
+            const cat = normalizeCategory(p.category);
+            solvedCounts[cat] = (solvedCounts[cat] || 0) + 1;
+          }
+        }
+
+        // Build stats
+        const stats: Record<string, { solved: number; total: number }> = {};
+        for (const c of CATEGORY_CONFIG) {
+          stats[c.key] = { solved: solvedCounts[c.key] || 0, total: totals[c.key] || 0 };
+        }
+        setCategoryStats(stats);
+
+        // Build recent solved list (last 5)
+        const solvedProblemsData = problems
+          .filter((p) => solvedSet.has(p.id))
+          .slice(-5)
+          .reverse();
+        setRecentSolved(solvedProblemsData);
+      })
+      .catch(() => {});
+  }, [solvedProblems]);
 
   return (
     <div className="mx-auto max-w-[var(--max-width-content)] px-6 py-8">
@@ -126,19 +208,15 @@ export default function ProfilePage() {
         <ActivityHeatmap data={activityData} />
       </div>
 
-      {/* Concept Mastery Badges — will be populated from backend data */}
+      {/* Concept Mastery */}
       <div className="mt-8 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
         <ConceptBadges
-          badges={[
-            { concept: "SELECT Basics", solved: 0, total: 22, icon: "S" },
-            { concept: "WHERE Clauses", solved: 0, total: 30, icon: "W" },
-            { concept: "Aggregations", solved: 0, total: 63, icon: "A" },
-            { concept: "JOINs", solved: 0, total: 60, icon: "J" },
-            { concept: "Subqueries", solved: 0, total: 48, icon: "Q" },
-            { concept: "Window Functions", solved: 0, total: 48, icon: "F" },
-            { concept: "CTEs", solved: 0, total: 26, icon: "C" },
-            { concept: "Advanced", solved: 0, total: 27, icon: "X" },
-          ]}
+          badges={CATEGORY_CONFIG.map((c) => ({
+            concept: c.label,
+            solved: categoryStats[c.key]?.solved ?? 0,
+            total: categoryStats[c.key]?.total ?? 0,
+            icon: c.icon,
+          }))}
         />
       </div>
 
@@ -155,7 +233,7 @@ export default function ProfilePage() {
                 ? streak >= badge.threshold
                 : badge.category === "_total"
                   ? solved >= badge.threshold
-                  : false; // would check per-category solved count with backend data
+                  : (categoryStats[badge.category]?.solved ?? 0) >= badge.threshold;
 
             return (
               <div
@@ -183,10 +261,10 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {/* Recent Solved (placeholder) */}
+      {/* Recently Solved */}
       <div className="mt-8 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
         <h2 className="mb-4 text-sm font-semibold text-[var(--color-text-primary)]">Recently Solved</h2>
-        {solved === 0 ? (
+        {recentSolved.length === 0 ? (
           <div className="py-8 text-center">
             <p className="text-sm text-[var(--color-text-muted)]">No problems solved yet.</p>
             <Link
@@ -197,9 +275,32 @@ export default function ProfilePage() {
             </Link>
           </div>
         ) : (
-          <p className="text-sm text-[var(--color-text-muted)]">
-            You&apos;ve solved {solved} problem{solved !== 1 ? "s" : ""}. Keep going!
-          </p>
+          <div className="space-y-2">
+            {recentSolved.map((p) => (
+              <Link
+                key={p.id}
+                href={`/practice/${p.id}`}
+                className="flex items-center justify-between rounded-lg border border-[var(--color-border)] px-4 py-3 transition-colors hover:border-[var(--color-accent)] hover:bg-[var(--color-accent)]/5"
+              >
+                <span className="text-sm font-medium text-[var(--color-text-primary)]">{p.title}</span>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                  p.difficulty === "easy" ? "bg-emerald-500/10 text-emerald-500"
+                    : p.difficulty === "medium" ? "bg-amber-500/10 text-amber-500"
+                    : "bg-red-500/10 text-red-500"
+                }`}>
+                  {p.difficulty}
+                </span>
+              </Link>
+            ))}
+            {solved > 5 && (
+              <Link
+                href="/practice"
+                className="block text-center text-xs text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors pt-2"
+              >
+                View all {solved} solved problems
+              </Link>
+            )}
+          </div>
         )}
       </div>
     </div>
