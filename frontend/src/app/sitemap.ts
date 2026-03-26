@@ -1,6 +1,6 @@
 import { MetadataRoute } from "next";
 
-const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://sqlit.dev";
+const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://sqlit-nu.vercel.app";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Static pages

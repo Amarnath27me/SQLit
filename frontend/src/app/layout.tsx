@@ -28,7 +28,7 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: "SQLit" }],
   creator: "SQLit",
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://sqlit.dev"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://sqlit-nu.vercel.app"),
   openGraph: {
     type: "website",
     locale: "en_US",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from functools import lru_cache
 from typing import Any
 
@@ -25,12 +26,15 @@ _bearer_scheme_required = HTTPBearer(auto_error=True)
 # ---------------------------------------------------------------------------
 
 _jwks_cache: dict[str, Any] | None = None
+_jwks_cache_time: float = 0
+_JWKS_CACHE_TTL = 86400  # 24 hours
 
 
 async def _fetch_jwks() -> dict[str, Any]:
-    """Fetch the JSON Web Key Set from Auth0 (cached after first call)."""
-    global _jwks_cache
-    if _jwks_cache is not None:
+    """Fetch the JSON Web Key Set from Auth0 (cached for 24 hours)."""
+    global _jwks_cache, _jwks_cache_time
+    now = time.monotonic()
+    if _jwks_cache is not None and (now - _jwks_cache_time) < _JWKS_CACHE_TTL:
         return _jwks_cache
 
     jwks_url = f"https://{settings.auth0_domain}/.well-known/jwks.json"
@@ -38,6 +42,7 @@ async def _fetch_jwks() -> dict[str, Any]:
         resp = await client.get(jwks_url, timeout=10)
         resp.raise_for_status()
         _jwks_cache = resp.json()
+        _jwks_cache_time = now
         return _jwks_cache
 
 

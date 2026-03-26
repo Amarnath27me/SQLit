@@ -7,12 +7,15 @@ For local dev without PostgreSQL, falls back to SQLite in-memory.
 """
 
 import asyncio
+import logging
 import re
 import sqlite3
 import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from app.core.config import settings
 
@@ -182,13 +185,21 @@ def execute_query_pg_sync(
                 "execution_time_ms": round(elapsed, 2),
             }
     except Exception as e:
+        # Sanitize: only return safe SQL error info, not internal details
+        error_msg = str(e)
+        # Strip connection/system info, keep SQL-relevant error
+        if "relation" in error_msg or "column" in error_msg or "syntax" in error_msg.lower():
+            safe_error = error_msg.split("\n")[0]  # First line only
+        else:
+            safe_error = "Query execution failed. Check your SQL syntax and try again."
+            logger.warning("Query execution error (sanitized): %s", error_msg)
         return {
             "success": False,
             "columns": [],
             "rows": [],
             "row_count": 0,
             "execution_time_ms": 0,
-            "error": str(e),
+            "error": safe_error,
         }
 
 
@@ -335,13 +346,19 @@ def execute_query_sync(
             }
         except Exception as e:
             elapsed = (time.perf_counter() - start) * 1000
+            error_msg = str(e)
+            if "relation" in error_msg or "column" in error_msg or "syntax" in error_msg.lower():
+                safe_error = error_msg.split("\n")[0]
+            else:
+                safe_error = "Query execution failed. Check your SQL syntax and try again."
+                logger.warning("Sandboxed query error (sanitized): %s", error_msg)
             return {
                 "success": False,
                 "columns": [],
                 "rows": [],
                 "row_count": 0,
                 "execution_time_ms": round(elapsed, 2),
-                "error": str(e),
+                "error": safe_error,
             }
 
 
