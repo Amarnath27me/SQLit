@@ -14,7 +14,7 @@ const primaryLinks = [
   { href: "/optimization", label: "Optimization" },
   { href: "/docs", label: "Docs" },
   { href: "/datasets", label: "Datasets" },
-  { href: "/debug", label: "Debug" },
+  { href: "/debug", label: "Data Debugging" },
 ];
 
 const moreLinks = [

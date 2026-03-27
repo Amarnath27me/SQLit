@@ -18,12 +18,10 @@ async def list_problems(
     dataset: str | None = None,
     difficulty: str | None = None,
     category: str | None = None,
-    skip: int = 0,
-    limit: int = 500,
 ):
     problems = get_all_problems(dataset=dataset, difficulty=difficulty, category=category)
     total = len(problems)
-    safe = [{k: p[k] for k in LIST_FIELDS if k in p} for p in problems[skip:skip + limit]]
+    safe = [{k: p[k] for k in LIST_FIELDS if k in p} for p in problems]
     return {"problems": safe, "total": total}
 
 

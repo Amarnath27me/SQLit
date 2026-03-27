@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { apiClient } from "@/lib/api";
+import { SQLEditor } from "@/components/editor/SQLEditor";
 import INVESTIGATIONS from "@/data/debug-investigations";
 import type { Investigation } from "@/data/debug-investigations";
 
@@ -88,7 +89,6 @@ export default function DebugPage() {
   const [showRootCause, setShowRootCause] = useState(false);
   const [startTime, setStartTime] = useState<number>(0);
   const [tablesExplored, setTablesExplored] = useState<Set<string>>(new Set());
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [filterDifficulty, setFilterDifficulty] = useState<string>("all");
   const [filterDataset, setFilterDataset] = useState<string>("all");
   const [filterType, setFilterType] = useState<string>("all");
@@ -149,12 +149,6 @@ export default function DebugPage() {
     }
   }, [query, selected, trackTables]);
 
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = Math.max(120, textareaRef.current.scrollHeight) + "px";
-    }
-  }, [query]);
 
   const elapsed = startTime ? Math.floor((Date.now() - startTime) / 1000 / 60) : 0;
 
@@ -403,30 +397,16 @@ export default function DebugPage() {
             {/* Right Column */}
             <div className="space-y-4">
               {/* SQL Editor */}
-              <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]">
-                <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-2">
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">SQL Query</span>
-                  <button
-                    onClick={handleRun}
-                    disabled={running || !query.trim()}
-                    className="flex items-center gap-1.5 rounded-md bg-[var(--color-accent)] px-3 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-                  >
-                    <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-                    {running ? "Running..." : "Run"}
-                    <kbd className="ml-1 rounded bg-white/20 px-1 py-0.5 text-[10px]">
-                      {typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent) ? "⌘↵" : "Ctrl+↵"}
-                    </kbd>
-                  </button>
+              <div className="overflow-hidden rounded-lg border border-[var(--color-border)]">
+                <div className="h-[200px]">
+                  <SQLEditor
+                    value={query}
+                    onChange={(v) => setQuery(v)}
+                    onRun={handleRun}
+                    dialect="postgresql"
+                    tables={selected.tables.map((t) => ({ name: t, columns: [] }))}
+                  />
                 </div>
-                <textarea
-                  ref={textareaRef}
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") handleRun(); }}
-                  placeholder="Write your investigative query here..."
-                  className="min-h-[120px] w-full resize-none bg-transparent p-4 font-mono text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:outline-none"
-                  spellCheck={false}
-                />
               </div>
 
               {/* Error */}
