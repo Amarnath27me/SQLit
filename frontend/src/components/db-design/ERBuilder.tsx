@@ -441,12 +441,24 @@ function SQLPanel({ mode, sql, onImport, onClose }: { mode: "export" | "import";
 /*  Main Component                                                     */
 /* ------------------------------------------------------------------ */
 
-export default function ERBuilder() {
-  const [entities, setEntities] = useState<EREntity[]>([]);
+export type { EREntity, ERColumn, ERRelationship };
+
+export default function ERBuilder({ initialEntities, onEntitiesChange }: { initialEntities?: EREntity[]; onEntitiesChange?: (entities: EREntity[]) => void } = {}) {
+  const [entities, setEntities] = useState<EREntity[]>(initialEntities || []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editEntity, setEditEntity] = useState<EREntity | null>(null);
   const [sqlPanel, setSqlPanel] = useState<"export" | "import" | null>(null);
+
+  // Sync with parent
+  useEffect(() => {
+    if (onEntitiesChange) onEntitiesChange(entities);
+  }, [entities, onEntitiesChange]);
+
+  // Reset when initialEntities changes (new challenge selected)
+  useEffect(() => {
+    if (initialEntities) setEntities(initialEntities);
+  }, [initialEntities]);
 
   // Drag state
   const svgRef = useRef<SVGSVGElement>(null);
