@@ -59,22 +59,57 @@ _CATEGORY_MAP: dict[str, str] = {
     "Interview — Window Functions": "window-functions",
     "Interview — CTE": "cte",
     "Interview — Joins": "joins",
+    # Remaining freeform variants found in datasets
+    "sorting": "select",
+    "joins and calculation": "joins",
+    "having and distinct": "aggregation",
+    "subquery and date logic": "subqueries",
+    "self join": "joins",
+    "self-join": "joins",
+    "subquery and percentage": "subqueries",
+    "window functions and pattern detection": "window-functions",
+    "advanced aggregation": "aggregation",
+    "window functions and date logic": "window-functions",
+    "window functions and statistics": "window-functions",
+    "complex CTE": "cte",
 }
+
+
+_CANONICAL_CATEGORIES = ("select", "where", "aggregation", "joins", "subqueries", "window-functions", "cte", "advanced")
 
 
 def _normalize_category(category: str) -> str:
     """Normalize category to one of: select, where, aggregation, joins, subqueries, window-functions, cte, advanced."""
     if category in _CATEGORY_MAP:
         return _CATEGORY_MAP[category]
+    # Already canonical
+    if category in _CANONICAL_CATEGORIES:
+        return category
     # Strip "Interview — " prefix for any not explicitly mapped
     if category.startswith("Interview — "):
         base = category[len("Interview — "):].lower().strip()
-        for canonical in ("select", "where", "aggregation", "joins", "subqueries", "window-functions", "cte", "advanced"):
+        for canonical in _CANONICAL_CATEGORIES:
             if canonical in base or base in canonical:
                 return canonical
         return "advanced"
-    # Already canonical
-    return category
+    # Fuzzy match: check if any canonical keyword appears in the category
+    lower = category.lower()
+    if "join" in lower:
+        return "joins"
+    if "window" in lower:
+        return "window-functions"
+    if "subquer" in lower:
+        return "subqueries"
+    if "cte" in lower:
+        return "cte"
+    if "aggregat" in lower or "having" in lower or "group" in lower:
+        return "aggregation"
+    if "where" in lower or "filter" in lower:
+        return "where"
+    if "sort" in lower or "order" in lower or "select" in lower:
+        return "select"
+    # Default fallback
+    return "advanced"
 
 
 def _load_problems():

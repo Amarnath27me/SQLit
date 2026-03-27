@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { apiClient } from "@/lib/api";
 
 /* ── Types ── */
@@ -11,420 +11,450 @@ interface QueryResult {
   executionTimeMs: number;
 }
 
-interface Challenge {
+interface QueryLog {
+  query: string;
+  result: QueryResult | null;
+  error: string | null;
+  timestamp: number;
+}
+
+interface Hint {
+  label: string;
+  text: string;
+}
+
+interface Step {
+  title: string;
+  description: string;
+}
+
+interface Investigation {
   id: string;
   title: string;
   dataset: string;
   difficulty: "easy" | "medium" | "hard";
-  description: string;
+  context: string;
+  tables: string[];
+  task: string;
+  steps: Step[];
+  hints: Hint[];
+  rootCause: string;
+  fix: string;
+  learnings: string[];
   issueType: string;
-  hint: string;
-  verifyQuery: string;
-  expectedIssueCount: number;
 }
 
-/* ── Challenges ── */
-const CHALLENGES: Challenge[] = [
-  // E-Commerce
+/* ── Investigation Problems ── */
+const INVESTIGATIONS: Investigation[] = [
   {
-    id: "dbg-001",
-    title: "Find NULL Email Addresses",
+    id: "inv-001",
+    title: "Revenue is 30% Higher Than Expected",
     dataset: "ecommerce",
-    difficulty: "easy",
-    issueType: "Missing Data",
-    description:
-      "The marketing team can't send promotional emails to all customers. Some customer records are missing email addresses. Write a query to find all customers with NULL or empty email fields.",
-    hint: "Check for both NULL and empty strings — they're different things in SQL.",
-    verifyQuery:
-      "SELECT COUNT(*) AS issue_count FROM customers WHERE email IS NULL OR email = ''",
-    expectedIssueCount: 0,
+    difficulty: "hard",
+    issueType: "Duplicate Data",
+    context:
+      "The finance team runs a monthly revenue report. This month, the dashboard shows revenue is 30% higher than the sales team's manual tracking. The CFO needs this resolved before the board meeting tomorrow.",
+    tables: ["orders", "order_items", "payments"],
+    task: "Investigate why revenue is inflated. Find the root cause and write a query that shows the correct revenue.",
+    steps: [
+      {
+        title: "Explore the data",
+        description:
+          "Start by checking total revenue. Query the orders table to see what the dashboard might be computing.",
+      },
+      {
+        title: "Find the anomaly",
+        description:
+          "Compare order counts vs payment counts. Are there duplicate records? Check if any order_id appears more than once.",
+      },
+      {
+        title: "Identify root cause",
+        description:
+          "Write a query that shows the duplicate records and quantifies the impact on revenue.",
+      },
+    ],
+    hints: [
+      { label: "Hint 1", text: "Check if any order_id appears in the payments table more than once." },
+      { label: "Hint 2", text: "Try: SELECT order_id, COUNT(*) FROM payments GROUP BY order_id HAVING COUNT(*) > 1" },
+      { label: "Hint 3", text: "Calculate revenue with and without deduplication: compare SUM(amount) vs SUM of DISTINCT order amounts." },
+    ],
+    rootCause:
+      "Duplicate payment records exist — some orders have multiple payment entries (e.g., failed + successful retry), inflating the SUM(amount) calculation.",
+    fix: "Use DISTINCT on order_id when summing revenue, or filter payments to only status = 'completed'. The correct query should deduplicate before aggregating.",
+    learnings: [
+      "Always check for duplicates before aggregating",
+      "GROUP BY + HAVING COUNT(*) > 1 is your best friend for finding dupes",
+      "Payment retries often create duplicate records in production systems",
+    ],
   },
   {
-    id: "dbg-002",
-    title: "Detect Duplicate Customer Emails",
-    dataset: "ecommerce",
-    difficulty: "easy",
-    issueType: "Duplicates",
-    description:
-      "The CRM team noticed some customers share the same email address, which causes login conflicts. Find all email addresses that appear more than once.",
-    hint: "GROUP BY the email column and use HAVING to filter for counts > 1.",
-    verifyQuery:
-      "SELECT email, COUNT(*) AS cnt FROM customers GROUP BY email HAVING COUNT(*) > 1",
-    expectedIssueCount: 0,
-  },
-  {
-    id: "dbg-003",
-    title: "Orders with Invalid Totals",
+    id: "inv-002",
+    title: "Yesterday's Orders Are Missing",
     dataset: "ecommerce",
     difficulty: "medium",
-    issueType: "Calculation Error",
-    description:
-      "Finance flagged that some order totals don't match the sum of their line items. Find orders where the total_amount doesn't equal the sum of (quantity × unit_price) from order_items.",
-    hint: "JOIN orders with a subquery that sums order_items per order, then compare.",
-    verifyQuery:
-      "SELECT o.id FROM orders o JOIN (SELECT order_id, SUM(quantity * unit_price) AS calc_total FROM order_items GROUP BY order_id) oi ON o.id = oi.order_id WHERE ABS(o.total_amount - oi.calc_total) > 0.01",
-    expectedIssueCount: 0,
+    issueType: "Pipeline Gap",
+    context:
+      "The operations team notices the daily orders dashboard shows zero orders for yesterday, but the warehouse shipped 150 packages. The ETL pipeline runs at midnight UTC every day.",
+    tables: ["orders", "customers"],
+    task: "Investigate why yesterday's data is missing. Determine if it's a real gap or a date/timezone issue.",
+    steps: [
+      {
+        title: "Check the date range",
+        description:
+          "Query the most recent orders. What's the latest created_at timestamp in the orders table?",
+      },
+      {
+        title: "Look for gaps",
+        description:
+          "Generate a date series and find which dates have no orders. Are there gaps before yesterday too?",
+      },
+      {
+        title: "Quantify the impact",
+        description:
+          "Count orders per day for the last 7 days. Show exactly which dates are missing or undercounted.",
+      },
+    ],
+    hints: [
+      { label: "Hint 1", text: "Start with: SELECT DATE(created_at) AS day, COUNT(*) FROM orders GROUP BY day ORDER BY day DESC LIMIT 10" },
+      { label: "Hint 2", text: "Check if there are orders with future dates or incorrect timestamps." },
+      { label: "Hint 3", text: "Look at the MAX(created_at) — the pipeline may have stopped ingesting data at a specific point." },
+    ],
+    rootCause:
+      "The data pipeline stopped ingesting after a certain date. The MAX(created_at) reveals the last successful load, showing a gap between that date and today.",
+    fix: "Identify when the pipeline broke by finding the last ingested timestamp. Alert the data engineering team to backfill missing dates. Add pipeline monitoring to detect ingestion gaps automatically.",
+    learnings: [
+      "Always check MAX(date) to detect pipeline freshness",
+      "Date gaps in time-series data usually indicate ETL failures",
+      "Daily aggregations hide intra-day pipeline breaks",
+    ],
   },
   {
-    id: "dbg-004",
-    title: "Orphaned Order Items",
+    id: "inv-003",
+    title: "Revenue Doubled After a JOIN",
+    dataset: "ecommerce",
+    difficulty: "hard",
+    issueType: "Join Explosion",
+    context:
+      "A junior analyst added a JOIN to the revenue query to include product categories. Before the change, total revenue was $500K. After adding the JOIN, it shows $1.1M. The query looks correct syntactically. The analyst is confused.",
+    tables: ["orders", "order_items", "products", "categories"],
+    task: "Find why the JOIN is causing revenue to double. Demonstrate the row multiplication problem.",
+    steps: [
+      {
+        title: "Compare before and after",
+        description:
+          "Run the simple revenue query (SUM of order totals), then run it with the JOIN. Compare the numbers.",
+      },
+      {
+        title: "Find the multiplication",
+        description:
+          "Check if any order has multiple items. When you JOIN orders to order_items, one order row becomes many rows.",
+      },
+      {
+        title: "Show the fix",
+        description:
+          "Write the correct query that gets revenue by category without double-counting order amounts.",
+      },
+    ],
+    hints: [
+      { label: "Hint 1", text: "Count rows: SELECT COUNT(*) FROM orders vs SELECT COUNT(*) FROM orders JOIN order_items ON orders.id = order_items.order_id" },
+      { label: "Hint 2", text: "The issue is one-to-many: each order has multiple order_items, so the order's total_amount gets counted once per item." },
+      { label: "Hint 3", text: "Fix: aggregate at the order_items level (SUM of quantity * unit_price), not at the orders level (SUM of total_amount after JOIN)." },
+    ],
+    rootCause:
+      "One-to-many JOIN explosion: each order has multiple order_items. When you JOIN orders to order_items and SUM(orders.total_amount), each order's total gets counted once per item row, inflating the result.",
+    fix: "Either aggregate revenue from order_items directly (SUM of quantity * unit_price), or use a subquery to get distinct order totals before joining.",
+    learnings: [
+      "JOINs can multiply rows — always check COUNT before and after",
+      "One-to-many JOINs are the #1 cause of inflated metrics",
+      "When in doubt, aggregate first, then JOIN",
+    ],
+  },
+  {
+    id: "inv-004",
+    title: "Total Revenue is Lower Than Expected",
+    dataset: "ecommerce",
+    difficulty: "easy",
+    issueType: "NULL Handling",
+    context:
+      "The monthly revenue report shows $180K, but the sales team manually counted $210K from their deal tracker. The finance team says the SQL query is simple: SELECT SUM(total_amount) FROM orders. So where's the missing $30K?",
+    tables: ["orders"],
+    task: "Find why SUM(total_amount) is returning a lower number than expected. Identify the rows affecting the calculation.",
+    steps: [
+      {
+        title: "Check for NULLs",
+        description:
+          "Count how many orders have NULL total_amount. SUM() silently skips NULL values.",
+      },
+      {
+        title: "Quantify the gap",
+        description:
+          "Find the orders with NULL amounts. Cross-reference with other columns — do these look like real orders?",
+      },
+      {
+        title: "Show the impact",
+        description:
+          "Compare COUNT(*) vs COUNT(total_amount) to show how many rows are being excluded from the SUM.",
+      },
+    ],
+    hints: [
+      { label: "Hint 1", text: "SUM() ignores NULLs silently — it doesn't error, it just skips them." },
+      { label: "Hint 2", text: "Try: SELECT COUNT(*) AS total_orders, COUNT(total_amount) AS orders_with_amount FROM orders" },
+      { label: "Hint 3", text: "Find the NULLs: SELECT * FROM orders WHERE total_amount IS NULL" },
+    ],
+    rootCause:
+      "Several orders have NULL total_amount values. SQL's SUM() silently skips NULL rows without warning, so those orders are excluded from the revenue calculation.",
+    fix: "Investigate why total_amount is NULL (data entry issue? pending orders?) and either fix the source data or use COALESCE(total_amount, 0) to include them as zero.",
+    learnings: [
+      "SUM() skips NULLs silently — this is one of the most common data bugs",
+      "Always compare COUNT(*) vs COUNT(column) to detect NULLs",
+      "COALESCE is your safety net for NULL values in aggregations",
+    ],
+  },
+  {
+    id: "inv-005",
+    title: "Average Order Value is Wrong",
+    dataset: "ecommerce",
+    difficulty: "medium",
+    issueType: "Aggregation Error",
+    context:
+      "The analytics dashboard shows the average order value (AOV) is $45. The product team says this seems too low — they expect around $85 based on pricing. The query is: SELECT AVG(total_amount) FROM orders. It runs without errors.",
+    tables: ["orders", "order_items"],
+    task: "Investigate why the average is so low. Find what's pulling the average down.",
+    steps: [
+      {
+        title: "Check the distribution",
+        description:
+          "Look at the distribution of order amounts. Are there outliers or suspicious values pulling the average down?",
+      },
+      {
+        title: "Find the culprits",
+        description:
+          "Look for orders with $0 or very low amounts. Are these test orders, cancelled orders, or free samples?",
+      },
+      {
+        title: "Calculate the corrected AOV",
+        description:
+          "Write a query that excludes invalid orders (cancelled, $0, test orders) and shows the real AOV.",
+      },
+    ],
+    hints: [
+      { label: "Hint 1", text: "Check: SELECT MIN(total_amount), MAX(total_amount), AVG(total_amount) FROM orders" },
+      { label: "Hint 2", text: "Look for orders with amount = 0 or status in ('cancelled', 'test', 'refunded')." },
+      { label: "Hint 3", text: "Try: SELECT status, COUNT(*), AVG(total_amount) FROM orders GROUP BY status — see if cancelled/test orders skew the average." },
+    ],
+    rootCause:
+      "The AVG includes cancelled orders ($0 amount) and test orders. These zero-value records drag the average down significantly. The query doesn't filter by order status.",
+    fix: "Filter to only completed/valid orders: SELECT AVG(total_amount) FROM orders WHERE status = 'completed' AND total_amount > 0",
+    learnings: [
+      "AVG is easily skewed by outliers and zero-value records",
+      "Always check the distribution before trusting an average",
+      "Filter by status — cancelled and test orders should be excluded from metrics",
+    ],
+  },
+  {
+    id: "inv-006",
+    title: "Daily Active Users Seems Inflated",
+    dataset: "ecommerce",
+    difficulty: "medium",
+    issueType: "Duplicate Counting",
+    context:
+      "The growth team reports 5,000 DAU (Daily Active Users) but the product team says they only have 2,000 registered users. The DAU query counts rows in the activity log: SELECT COUNT(customer_id) FROM orders WHERE DATE(created_at) = CURRENT_DATE.",
+    tables: ["orders", "customers"],
+    task: "Investigate why DAU is higher than total users. Find the counting error.",
+    steps: [
+      {
+        title: "Understand the gap",
+        description:
+          "Compare total customers vs the DAU number. Check if COUNT is counting correctly.",
+      },
+      {
+        title: "Find duplicates",
+        description:
+          "Check if customers have multiple orders on the same day. COUNT without DISTINCT counts every row.",
+      },
+      {
+        title: "Show the fix",
+        description:
+          "Demonstrate the difference between COUNT(customer_id) and COUNT(DISTINCT customer_id).",
+      },
+    ],
+    hints: [
+      { label: "Hint 1", text: "COUNT(customer_id) counts every row, including duplicates. COUNT(DISTINCT customer_id) counts unique users." },
+      { label: "Hint 2", text: "Check: SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id HAVING COUNT(*) > 1" },
+      { label: "Hint 3", text: "Compare: SELECT COUNT(customer_id) AS with_dupes, COUNT(DISTINCT customer_id) AS unique_users FROM orders" },
+    ],
+    rootCause:
+      "The query uses COUNT(customer_id) instead of COUNT(DISTINCT customer_id). Users who place multiple orders in a day are counted multiple times, inflating the DAU metric.",
+    fix: "Use COUNT(DISTINCT customer_id) to count unique users. This is one of the most common analytics mistakes.",
+    learnings: [
+      "COUNT vs COUNT(DISTINCT) is a critical difference in analytics",
+      "Always ask: am I counting events or unique entities?",
+      "DAU, MAU, and user metrics always need DISTINCT",
+    ],
+  },
+  {
+    id: "inv-007",
+    title: "Daily Metrics Shift Every Day",
+    dataset: "ecommerce",
+    difficulty: "hard",
+    issueType: "Timezone Bug",
+    context:
+      "The daily revenue report runs at 9 AM EST. Every morning, yesterday's numbers change slightly from what was reported the evening before. The team in the London office sees different daily totals than the NYC team. The query groups by DATE(created_at).",
+    tables: ["orders"],
+    task: "Investigate the timezone inconsistency. Show how the same data produces different daily totals depending on timezone interpretation.",
+    steps: [
+      {
+        title: "Check timestamp format",
+        description:
+          "Examine raw created_at values. Are they in UTC? Do they have timezone info?",
+      },
+      {
+        title: "Find the boundary issue",
+        description:
+          "Look at orders near midnight UTC. Show how DATE() in different timezones assigns them to different days.",
+      },
+      {
+        title: "Quantify the drift",
+        description:
+          "Compare daily revenue grouped by UTC date vs a timezone-adjusted date. Show the discrepancy.",
+      },
+    ],
+    hints: [
+      { label: "Hint 1", text: "Check orders near midnight: SELECT * FROM orders WHERE EXTRACT(HOUR FROM created_at) >= 22 OR EXTRACT(HOUR FROM created_at) <= 2" },
+      { label: "Hint 2", text: "Timestamps stored without timezone info are ambiguous — DATE() uses the server's timezone." },
+      { label: "Hint 3", text: "Compare: SELECT DATE(created_at) AS utc_day, DATE(created_at - INTERVAL '5 hours') AS est_day, total_amount FROM orders WHERE EXTRACT(HOUR FROM created_at) BETWEEN 0 AND 5" },
+    ],
+    rootCause:
+      "Timestamps are stored in UTC but DATE(created_at) is used without timezone conversion. Orders placed between midnight UTC and 5 AM UTC (i.e., 7-12 PM EST the previous day) get assigned to different dates depending on the viewer's timezone.",
+    fix: "Always convert to a consistent timezone before extracting dates: DATE(created_at AT TIME ZONE 'America/New_York'). Or store timestamps with timezone info.",
+    learnings: [
+      "Timezone bugs are silent — queries run fine but produce wrong results",
+      "Always convert to business timezone before DATE extraction",
+      "Orders near midnight are the canary for timezone issues",
+    ],
+  },
+  {
+    id: "inv-008",
+    title: "Data Pipeline Stopped Loading",
+    dataset: "finance",
+    difficulty: "medium",
+    issueType: "Pipeline Failure",
+    context:
+      "The fraud detection dashboard stopped flagging suspicious transactions 3 days ago. The data team says 'the pipeline is green' but the fraud analyst sees no new data. Transactions should be loaded every hour.",
+    tables: ["transactions", "accounts"],
+    task: "Investigate when and where the pipeline broke. Find the exact timestamp of the last successful load.",
+    steps: [
+      {
+        title: "Find the cutoff",
+        description:
+          "What's the most recent transaction_date? This tells you when the pipeline stopped.",
+      },
+      {
+        title: "Check for partial loads",
+        description:
+          "Count transactions per day for the last 7 days. Did volume drop gradually or stop suddenly?",
+      },
+      {
+        title: "Detect the pattern",
+        description:
+          "Compare hourly transaction counts for the last loaded day vs a normal day. Was the last day fully loaded?",
+      },
+    ],
+    hints: [
+      { label: "Hint 1", text: "Start with: SELECT MAX(transaction_date) FROM transactions" },
+      { label: "Hint 2", text: "Try: SELECT DATE(transaction_date) AS day, COUNT(*) FROM transactions GROUP BY day ORDER BY day DESC LIMIT 10" },
+      { label: "Hint 3", text: "Check hourly pattern: SELECT EXTRACT(HOUR FROM transaction_date) AS hr, COUNT(*) FROM transactions WHERE DATE(transaction_date) = (SELECT MAX(DATE(transaction_date)) FROM transactions) GROUP BY hr ORDER BY hr" },
+    ],
+    rootCause:
+      "The pipeline's last successful load shows a specific cutoff timestamp. The last day has fewer records than normal (partial load), followed by complete silence. The pipeline broke mid-batch.",
+    fix: "Identify the exact failure time from MAX(transaction_date). Check pipeline logs for that timestamp. Backfill missing data after fixing the root cause. Add alerting on data freshness (MAX(timestamp) > X hours old = alert).",
+    learnings: [
+      "MAX(timestamp) is the fastest way to check data freshness",
+      "Partial loads are harder to detect than complete outages",
+      "Always build freshness monitoring into data pipelines",
+    ],
+  },
+  {
+    id: "inv-009",
+    title: "Revenue Doesn't Match After Refunds",
+    dataset: "ecommerce",
+    difficulty: "hard",
+    issueType: "Refund Double Counting",
+    context:
+      "The finance team reports net revenue as $850K. The accounting team says it should be $720K after refunds. The dashboard query JOINs orders with a refunds table and subtracts refund amounts. But the numbers still don't match.",
+    tables: ["orders", "order_items"],
+    task: "Investigate why the refund subtraction is producing wrong results. Find orders being double-counted or refunds being missed.",
+    steps: [
+      {
+        title: "Check the join",
+        description:
+          "JOIN orders with order_items that have been refunded. Does the JOIN create duplicate order rows?",
+      },
+      {
+        title: "Find mismatched records",
+        description:
+          "Look for orders that appear in order_items multiple times. Is the refund being applied per-item or per-order?",
+      },
+      {
+        title: "Calculate correctly",
+        description:
+          "Write a query that correctly computes net revenue by aggregating at the right level before subtracting.",
+      },
+    ],
+    hints: [
+      { label: "Hint 1", text: "Check if refunded orders have multiple items — the order total gets counted once per item in the JOIN." },
+      { label: "Hint 2", text: "Try aggregating refunds in a subquery first, then joining to orders." },
+      { label: "Hint 3", text: "The pattern is: SELECT SUM(o.total_amount) - COALESCE(SUM(sub.refund_total), 0) FROM orders o LEFT JOIN (SELECT order_id, SUM(...) as refund_total FROM ... GROUP BY order_id) sub ON ..." },
+    ],
+    rootCause:
+      "When JOINing orders to order_items for refund calculations, orders with multiple items get their total_amount counted multiple times. The refund subtraction happens after the row multiplication, so both revenue and refunds are inflated.",
+    fix: "Aggregate at the correct level: compute refund totals in a subquery grouped by order_id, then JOIN to orders. Never subtract after a one-to-many JOIN without pre-aggregating.",
+    learnings: [
+      "Refund calculations are a classic JOIN trap",
+      "Always aggregate in a subquery before joining",
+      "Test with a specific order: manually verify the math for one record",
+    ],
+  },
+  {
+    id: "inv-010",
+    title: "Orphan Records Breaking Reports",
     dataset: "ecommerce",
     difficulty: "easy",
     issueType: "Referential Integrity",
-    description:
-      "After a data migration, some order_items reference orders that no longer exist. Find all order items that point to a non-existent order_id.",
-    hint: "Use a LEFT JOIN from order_items to orders and look for NULLs.",
-    verifyQuery:
-      "SELECT oi.id FROM order_items oi LEFT JOIN orders o ON oi.order_id = o.id WHERE o.id IS NULL",
-    expectedIssueCount: 0,
-  },
-  {
-    id: "dbg-005",
-    title: "Products with Negative Stock",
-    dataset: "ecommerce",
-    difficulty: "easy",
-    issueType: "Invalid Values",
-    description:
-      "The warehouse system may have sync issues. Find any products where stock_quantity is negative — this should never happen in a real inventory.",
-    hint: "A simple WHERE clause comparing stock_quantity to zero.",
-    verifyQuery:
-      "SELECT id, name, stock_quantity FROM products WHERE stock_quantity < 0",
-    expectedIssueCount: 0,
-  },
-  {
-    id: "dbg-006",
-    title: "Orders Before Customer Registration",
-    dataset: "ecommerce",
-    difficulty: "medium",
-    issueType: "Temporal Anomaly",
-    description:
-      "Some orders appear to have been placed before the customer's account was created. Find all orders where the order_date is earlier than the customer's created_at timestamp.",
-    hint: "JOIN orders with customers and compare the two date columns.",
-    verifyQuery:
-      "SELECT o.id FROM orders o JOIN customers c ON o.customer_id = c.id WHERE o.order_date < c.created_at",
-    expectedIssueCount: 0,
-  },
-  {
-    id: "dbg-007",
-    title: "Reviews Without Purchases",
-    dataset: "ecommerce",
-    difficulty: "hard",
-    issueType: "Business Logic",
-    description:
-      "The integrity team suspects some reviews were written by people who never purchased the product. Find all reviews where the reviewer (customer_id) never ordered the reviewed product.",
-    hint: "Use NOT EXISTS with a subquery that checks order_items for that customer and product combination.",
-    verifyQuery:
-      "SELECT r.id FROM reviews r WHERE NOT EXISTS (SELECT 1 FROM orders o JOIN order_items oi ON o.id = oi.order_id WHERE o.customer_id = r.customer_id AND oi.product_id = r.product_id)",
-    expectedIssueCount: 0,
-  },
-  {
-    id: "dbg-008",
-    title: "Price Higher Than Cost Sanity Check",
-    dataset: "ecommerce",
-    difficulty: "easy",
-    issueType: "Business Logic",
-    description:
-      "Some products may have been entered with the cost higher than the selling price, resulting in guaranteed losses. Find products where cost exceeds price.",
-    hint: "Compare the cost and price columns directly.",
-    verifyQuery:
-      "SELECT id, name, price, cost FROM products WHERE cost > price",
-    expectedIssueCount: 0,
-  },
-
-  // Finance
-  {
-    id: "dbg-009",
-    title: "Accounts with Negative Balances",
-    dataset: "finance",
-    difficulty: "easy",
-    issueType: "Invalid Values",
-    description:
-      "Checking accounts should never have negative balances (overdraft protection is separate). Find all checking accounts with a balance below zero.",
-    hint: "Filter by account_type and check balance < 0.",
-    verifyQuery:
-      "SELECT id, balance FROM accounts WHERE account_type = 'checking' AND balance < 0",
-    expectedIssueCount: 0,
-  },
-  {
-    id: "dbg-010",
-    title: "Transactions with Wrong Running Balance",
-    dataset: "finance",
-    difficulty: "hard",
-    issueType: "Calculation Error",
-    description:
-      "The balance_after field in transactions should reflect the account balance after each transaction. Some records have incorrect balance_after values. Find transactions where the balance_after doesn't match the expected value.",
-    hint: "Use a window function to compute the running balance, then compare with the stored balance_after.",
-    verifyQuery:
-      "SELECT id FROM transactions WHERE balance_after != (SELECT SUM(CASE WHEN type = 'deposit' THEN amount ELSE -amount END) FROM transactions t2 WHERE t2.account_id = transactions.account_id AND t2.id <= transactions.id)",
-    expectedIssueCount: 0,
-  },
-  {
-    id: "dbg-011",
-    title: "Customers with Duplicate Emails",
-    dataset: "finance",
-    difficulty: "easy",
-    issueType: "Duplicates",
-    description:
-      "Bank compliance requires unique customer identifiers. Find customer email addresses that appear more than once in the system.",
-    hint: "GROUP BY email and use HAVING to find duplicates.",
-    verifyQuery:
-      "SELECT email, COUNT(*) AS cnt FROM customers GROUP BY email HAVING COUNT(*) > 1",
-    expectedIssueCount: 0,
-  },
-  {
-    id: "dbg-012",
-    title: "Expired Active Cards",
-    dataset: "finance",
-    difficulty: "medium",
-    issueType: "Stale Data",
-    description:
-      "Some cards are still marked as 'active' but have an expiry_date in the past. Find all cards that should have been deactivated.",
-    hint: "Compare expiry_date to the current date and filter by status.",
-    verifyQuery:
-      "SELECT id, card_number, expiry_date FROM cards WHERE status = 'active' AND expiry_date < DATE('now')",
-    expectedIssueCount: 0,
-  },
-  {
-    id: "dbg-013",
-    title: "Loan Payments Exceeding Balance",
-    dataset: "finance",
-    difficulty: "medium",
-    issueType: "Business Logic",
-    description:
-      "Some loan payment totals exceed the original loan amount. Find loans where the sum of payments is greater than the loan amount.",
-    hint: "JOIN loans with aggregated payments and compare totals.",
-    verifyQuery:
-      "SELECT l.id, l.amount, SUM(p.amount) AS total_paid FROM loans l JOIN payments p ON l.id = p.loan_id GROUP BY l.id HAVING SUM(p.amount) > l.amount",
-    expectedIssueCount: 0,
-  },
-  {
-    id: "dbg-014",
-    title: "Missing Customer Phone Numbers",
-    dataset: "finance",
-    difficulty: "easy",
-    issueType: "Missing Data",
-    description:
-      "The compliance team needs to reach all customers by phone. Find customers with missing (NULL) phone numbers.",
-    hint: "A simple IS NULL check on the phone column.",
-    verifyQuery:
-      "SELECT id, first_name, last_name FROM customers WHERE phone IS NULL",
-    expectedIssueCount: 0,
-  },
-
-  // Healthcare
-  {
-    id: "dbg-015",
-    title: "Patients with Missing Phone Numbers",
-    dataset: "healthcare",
-    difficulty: "easy",
-    issueType: "Missing Data",
-    description:
-      "Emergency contact requires phone numbers. Find all patients with NULL phone fields.",
-    hint: "Filter patients where phone IS NULL.",
-    verifyQuery:
-      "SELECT id, first_name, last_name FROM patients WHERE phone IS NULL",
-    expectedIssueCount: 0,
-  },
-  {
-    id: "dbg-016",
-    title: "Duplicate Patient Emails",
-    dataset: "healthcare",
-    difficulty: "easy",
-    issueType: "Duplicates",
-    description:
-      "The patient portal requires unique emails. Find email addresses shared by multiple patients.",
-    hint: "GROUP BY email with HAVING COUNT(*) > 1.",
-    verifyQuery:
-      "SELECT email, COUNT(*) AS cnt FROM patients GROUP BY email HAVING COUNT(*) > 1",
-    expectedIssueCount: 0,
-  },
-  {
-    id: "dbg-017",
-    title: "Unpaid Overdue Bills",
-    dataset: "healthcare",
-    difficulty: "medium",
-    issueType: "Stale Data",
-    description:
-      "The billing department needs to follow up on bills that are still 'pending' but were created more than 90 days ago and have no paid_at date. Find these overdue records.",
-    hint: "Filter billing records by status, paid_at IS NULL, and a date calculation.",
-    verifyQuery:
-      "SELECT id, amount, created_at FROM billing WHERE status = 'pending' AND paid_at IS NULL AND DATE(created_at, '+90 days') < DATE('now')",
-    expectedIssueCount: 0,
-  },
-  {
-    id: "dbg-018",
-    title: "Visits Without a Doctor Assignment",
-    dataset: "healthcare",
-    difficulty: "easy",
-    issueType: "Missing Data",
-    description:
-      "Every visit should have a doctor assigned. Find any visits where doctor_id is NULL.",
-    hint: "Check the doctor_id column for NULL values.",
-    verifyQuery:
-      "SELECT id, patient_id, visit_date FROM visits WHERE doctor_id IS NULL",
-    expectedIssueCount: 0,
-  },
-  {
-    id: "dbg-019",
-    title: "Lab Results for Non-Existent Visits",
-    dataset: "healthcare",
-    difficulty: "medium",
-    issueType: "Referential Integrity",
-    description:
-      "After a database cleanup, some lab results may reference visits that were deleted. Find orphaned lab results.",
-    hint: "LEFT JOIN lab_results with visits and look for NULL visit IDs.",
-    verifyQuery:
-      "SELECT lr.id FROM lab_results lr LEFT JOIN visits v ON lr.visit_id = v.id WHERE v.id IS NULL",
-    expectedIssueCount: 0,
-  },
-  {
-    id: "dbg-020",
-    title: "Abnormal Lab Results Without Follow-Up Visit",
-    dataset: "healthcare",
-    difficulty: "hard",
-    issueType: "Business Logic",
-    description:
-      "Patients with abnormal lab results should have a follow-up visit scheduled within 30 days. Find abnormal results where the patient has no subsequent visit after the lab result date.",
-    hint: "Join lab_results with visits, checking for a later visit by the same patient within 30 days.",
-    verifyQuery:
-      "SELECT lr.id FROM lab_results lr JOIN visits v ON lr.visit_id = v.id WHERE lr.is_abnormal = 1 AND NOT EXISTS (SELECT 1 FROM visits v2 WHERE v2.patient_id = v.patient_id AND v2.visit_date > v.visit_date AND DATE(v2.visit_date) <= DATE(v.visit_date, '+30 days'))",
-    expectedIssueCount: 0,
-  },
-
-  // ── Wrong Join Diagnosis ──
-  {
-    id: "dbg-021",
-    title: "Inflated Revenue from Duplicate Joins",
-    dataset: "ecommerce",
-    difficulty: "medium",
-    issueType: "Wrong Join",
-    description:
-      "A dashboard shows total revenue of $2.3M, but the CFO says it should be around $1.1M. The analyst used this query:\n\nSELECT SUM(oi.quantity * oi.unit_price) AS total_revenue\nFROM orders o\nJOIN order_items oi ON o.id = oi.order_id\nJOIN payments p ON o.id = p.order_id\n\nThe payments table has multiple rows per order (partial payments). Write a query to prove this causes row duplication and find the correct total revenue.",
-    hint: "When you JOIN orders→order_items→payments, each payment row duplicates all order_items. First find orders with multiple payments, then compute revenue without the payments join.",
-    verifyQuery:
-      "SELECT SUM(quantity * unit_price) AS correct_revenue FROM order_items",
-    expectedIssueCount: 0,
-  },
-  {
-    id: "dbg-022",
-    title: "Patients Counted Multiple Times",
-    dataset: "healthcare",
-    difficulty: "medium",
-    issueType: "Wrong Join",
-    description:
-      "A report claims the hospital treated 5,000 unique patients last year. But the actual patient count is much lower. The analyst used:\n\nSELECT COUNT(p.id) FROM patients p JOIN visits v ON p.id = v.patient_id\n\nExplain why the count is wrong and write the correct query to count unique patients who had at least one visit.",
-    hint: "COUNT(p.id) counts every row after the JOIN — patients with multiple visits are counted multiple times. Use COUNT(DISTINCT p.id) instead.",
-    verifyQuery:
-      "SELECT COUNT(DISTINCT p.id) AS unique_patients FROM patients p JOIN visits v ON p.id = v.patient_id",
-    expectedIssueCount: 0,
-  },
-  {
-    id: "dbg-023",
-    title: "Transaction Amounts Doubled by Card Join",
-    dataset: "finance",
-    difficulty: "hard",
-    issueType: "Wrong Join",
-    description:
-      "An analyst reports that total deposits are unexpectedly high. Their query joins transactions with cards through accounts, but some accounts have multiple cards. Write a query to identify accounts where the card join causes transaction amount inflation, and find the true total deposits.",
-    hint: "If an account has 2 cards and 3 deposits, a JOIN through cards yields 6 rows instead of 3. Find accounts with multiple cards, then compute deposits without the cards join.",
-    verifyQuery:
-      "SELECT SUM(amount) AS correct_deposits FROM transactions WHERE type = 'deposit'",
-    expectedIssueCount: 0,
-  },
-
-  // ── Data Pipeline Gaps ──
-  {
-    id: "dbg-024",
-    title: "Missing Dates in Daily Orders",
-    dataset: "ecommerce",
-    difficulty: "medium",
-    issueType: "Pipeline Gap",
-    description:
-      "The data pipeline should produce an order record for every day. Business analysts noticed gaps in their daily revenue chart. Write a query to find dates that have zero orders but fall between the earliest and latest order dates. (Hint: You can generate a date series using recursive CTEs.)",
-    hint: "Use a recursive CTE to generate all dates between MIN(order_date) and MAX(order_date), then LEFT JOIN with orders grouped by date to find missing ones.",
-    verifyQuery:
-      "WITH RECURSIVE dates AS (SELECT MIN(DATE(order_date)) AS d FROM orders UNION ALL SELECT DATE(d, '+1 day') FROM dates WHERE d < (SELECT MAX(DATE(order_date)) FROM orders)), daily AS (SELECT DATE(order_date) AS d, COUNT(*) AS cnt FROM orders GROUP BY DATE(order_date)) SELECT dates.d FROM dates LEFT JOIN daily ON dates.d = daily.d WHERE daily.d IS NULL",
-    expectedIssueCount: 0,
-  },
-  {
-    id: "dbg-025",
-    title: "Missing Monthly Billing Periods",
-    dataset: "healthcare",
-    difficulty: "medium",
-    issueType: "Pipeline Gap",
-    description:
-      "The finance team expects billing records every month. Find months (YYYY-MM format) between the earliest and latest billing dates that have no billing records at all.",
-    hint: "Generate a series of year-month values using a recursive CTE, then LEFT JOIN with aggregated billing data to find gaps.",
-    verifyQuery:
-      "WITH RECURSIVE months AS (SELECT STRFTIME('%Y-%m', MIN(billed_at)) AS m FROM billing UNION ALL SELECT STRFTIME('%Y-%m', DATE(m || '-01', '+1 month')) FROM months WHERE m < (SELECT STRFTIME('%Y-%m', MAX(billed_at)) FROM billing)), actual AS (SELECT STRFTIME('%Y-%m', billed_at) AS m FROM billing GROUP BY 1) SELECT months.m FROM months LEFT JOIN actual ON months.m = actual.m WHERE actual.m IS NULL",
-    expectedIssueCount: 0,
-  },
-  {
-    id: "dbg-026",
-    title: "Gaps in Transaction Sequence",
-    dataset: "finance",
-    difficulty: "hard",
-    issueType: "Pipeline Gap",
-    description:
-      "Each account should have transactions with sequential reference_numbers. Find accounts that have gaps in their transaction IDs — meaning some transactions may have been lost during a data migration.",
-    hint: "Use LAG() or LEAD() window functions over the transaction IDs per account to detect where the difference between consecutive IDs is more than 1.",
-    verifyQuery:
-      "SELECT account_id, id AS current_id, LAG(id) OVER (PARTITION BY account_id ORDER BY id) AS prev_id FROM transactions",
-    expectedIssueCount: 0,
-  },
-
-  // ── Broken Dashboard Investigation ──
-  {
-    id: "dbg-027",
-    title: "Dashboard Shows Wrong Average Order Value",
-    dataset: "ecommerce",
-    difficulty: "hard",
-    issueType: "Broken Dashboard",
-    description:
-      "The executive dashboard shows an Average Order Value (AOV) of $250, but manual spot-checks suggest it should be around $85. The dashboard query is:\n\nSELECT AVG(total_amount) FROM orders\n\nInvestigate: Are there cancelled/returned orders inflating the average? Are there outlier orders? Write queries to find the root cause and the correct AOV for 'delivered' orders only.",
-    hint: "Check the distribution of orders by status. Cancelled orders with high totals or test orders may be inflating the average. Filter to only completed/delivered orders.",
-    verifyQuery:
-      "SELECT status, COUNT(*) AS cnt, ROUND(AVG(total_amount), 2) AS avg_amount FROM orders GROUP BY status ORDER BY avg_amount DESC",
-    expectedIssueCount: 0,
-  },
-  {
-    id: "dbg-028",
-    title: "Department Revenue Report is Incorrect",
-    dataset: "healthcare",
-    difficulty: "hard",
-    issueType: "Broken Dashboard",
-    description:
-      "The hospital CFO says the Cardiology department revenue looks too high on the dashboard. The dashboard joins billing → visits → doctors → departments. Investigate whether: (1) some visits have multiple billing records, (2) doctors are assigned to the wrong department, or (3) there's a data quality issue. Write queries to diagnose the root cause.",
-    hint: "Check for duplicate billing per visit (GROUP BY visit_id HAVING COUNT > 1). Also check if any doctor's department_id doesn't match where they should be. Compare SUM with and without deduplication.",
-    verifyQuery:
-      "SELECT v.id AS visit_id, COUNT(b.id) AS bill_count, SUM(b.amount) AS total_billed FROM visits v JOIN billing b ON v.id = b.visit_id GROUP BY v.id HAVING COUNT(b.id) > 1",
-    expectedIssueCount: 0,
-  },
-  {
-    id: "dbg-029",
-    title: "Customer Churn Rate Seems Too High",
-    dataset: "finance",
-    difficulty: "hard",
-    issueType: "Broken Dashboard",
-    description:
-      "The dashboard shows a 75% customer churn rate, but the business team says retention is healthy. The churn query counts customers with no transactions in the last 90 days vs total customers. Investigate: Are closed/frozen accounts being included? Are there customers who only have savings accounts (lower transaction frequency)? Write queries to find the correct active customer churn rate.",
-    hint: "Filter to only active accounts first. Then check if account_type matters — savings accounts may naturally have fewer transactions. Compute churn only for checking account holders.",
-    verifyQuery:
-      "SELECT a.account_type, COUNT(DISTINCT a.customer_id) AS total_customers, COUNT(DISTINCT CASE WHEN t.id IS NOT NULL THEN a.customer_id END) AS active_customers FROM accounts a LEFT JOIN transactions t ON a.id = t.account_id AND DATE(t.transaction_date) >= DATE('now', '-90 days') WHERE a.status = 'active' GROUP BY a.account_type",
-    expectedIssueCount: 0,
-  },
-  {
-    id: "dbg-030",
-    title: "Product Category Performance Mismatch",
-    dataset: "ecommerce",
-    difficulty: "medium",
-    issueType: "Broken Dashboard",
-    description:
-      "The product team's dashboard shows 'Electronics' as the #1 category by revenue, but the sales team says 'Clothing' should be #1. The dashboard uses:\n\nSELECT c.name, SUM(oi.quantity * oi.unit_price) AS revenue FROM categories c JOIN products p ON c.id = p.category_id JOIN order_items oi ON p.id = oi.product_id GROUP BY c.name ORDER BY revenue DESC\n\nInvestigate if cancelled/returned orders are included, and whether discounts are being applied. Write the corrected query.",
-    hint: "The dashboard doesn't filter out cancelled/returned orders, and doesn't account for the discount column in order_items. Apply both filters for correct results.",
-    verifyQuery:
-      "SELECT c.name, SUM(oi.quantity * oi.unit_price * (1 - oi.discount)) AS net_revenue FROM categories c JOIN products p ON c.id = p.category_id JOIN order_items oi ON p.id = oi.product_id JOIN orders o ON oi.order_id = o.id WHERE o.status NOT IN ('cancelled', 'returned') GROUP BY c.name ORDER BY net_revenue DESC",
-    expectedIssueCount: 0,
+    context:
+      "The customer success team runs a report of all orders with customer details. But 15% of orders are missing from the report. The query uses an INNER JOIN between orders and customers. No SQL errors are thrown.",
+    tables: ["orders", "customers"],
+    task: "Investigate why 15% of orders are silently dropped from the report. Find the orphan records.",
+    steps: [
+      {
+        title: "Count the gap",
+        description:
+          "Compare total orders vs orders that successfully join with customers. How many are being lost?",
+      },
+      {
+        title: "Find the orphans",
+        description:
+          "Use a LEFT JOIN to find orders whose customer_id doesn't match any record in the customers table.",
+      },
+      {
+        title: "Assess the impact",
+        description:
+          "Calculate the total revenue from orphan orders. This is money being excluded from reports.",
+      },
+    ],
+    hints: [
+      { label: "Hint 1", text: "INNER JOIN silently drops rows with no match. LEFT JOIN preserves all rows from the left table." },
+      { label: "Hint 2", text: "Try: SELECT COUNT(*) FROM orders o LEFT JOIN customers c ON o.customer_id = c.id WHERE c.id IS NULL" },
+      { label: "Hint 3", text: "Check what customer_ids are in orders but not in customers: SELECT DISTINCT customer_id FROM orders WHERE customer_id NOT IN (SELECT id FROM customers)" },
+    ],
+    rootCause:
+      "Some orders reference customer_ids that don't exist in the customers table (orphan records). The INNER JOIN silently drops these rows. This happens after customer account deletions or data migration issues.",
+    fix: "Use LEFT JOIN instead of INNER JOIN to include all orders. Separately investigate why customer records are missing — likely deleted accounts or failed migrations.",
+    learnings: [
+      "INNER JOIN silently drops non-matching rows — this is a data loss bug",
+      "LEFT JOIN + WHERE right.id IS NULL is the pattern to find orphans",
+      "Referential integrity issues are common after migrations or account deletions",
+    ],
   },
 ];
 
@@ -436,50 +466,54 @@ const difficultyColor = {
 };
 
 const issueTypeColor: Record<string, string> = {
-  "Missing Data": "bg-purple-500/20 text-purple-400",
-  Duplicates: "bg-orange-500/20 text-orange-400",
-  "Calculation Error": "bg-red-500/20 text-red-400",
-  "Referential Integrity": "bg-blue-500/20 text-blue-400",
-  "Invalid Values": "bg-pink-500/20 text-pink-400",
-  "Temporal Anomaly": "bg-cyan-500/20 text-cyan-400",
-  "Business Logic": "bg-emerald-500/20 text-emerald-400",
-  "Stale Data": "bg-amber-500/20 text-amber-400",
-  "Wrong Join": "bg-orange-500/10 text-orange-400",
-  "Pipeline Gap": "bg-purple-500/10 text-purple-400",
-  "Broken Dashboard": "bg-pink-500/10 text-pink-400",
-};
-
-const datasetLabel: Record<string, string> = {
-  ecommerce: "E-Commerce",
-  finance: "Finance",
-  healthcare: "Healthcare",
+  "Duplicate Data": "bg-orange-500/20 text-orange-400",
+  "Pipeline Gap": "bg-purple-500/20 text-purple-400",
+  "Join Explosion": "bg-red-500/20 text-red-400",
+  "NULL Handling": "bg-cyan-500/20 text-cyan-400",
+  "Aggregation Error": "bg-yellow-500/20 text-yellow-400",
+  "Duplicate Counting": "bg-pink-500/20 text-pink-400",
+  "Timezone Bug": "bg-blue-500/20 text-blue-400",
+  "Pipeline Failure": "bg-amber-500/20 text-amber-400",
+  "Refund Double Counting": "bg-emerald-500/20 text-emerald-400",
+  "Referential Integrity": "bg-indigo-500/20 text-indigo-400",
 };
 
 export default function DebugPage() {
-  const [selectedChallenge, setSelectedChallenge] = useState<Challenge | null>(
-    null
-  );
+  const [selected, setSelected] = useState<Investigation | null>(null);
   const [query, setQuery] = useState("");
+  const [queryHistory, setQueryHistory] = useState<QueryLog[]>([]);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
-  const [showHint, setShowHint] = useState(false);
-  const [filterDataset, setFilterDataset] = useState<string>("all");
-  const [filterType, setFilterType] = useState<string>("all");
+  const [revealedHints, setRevealedHints] = useState<number>(0);
+  const [currentStep, setCurrentStep] = useState(0);
+  const [showRootCause, setShowRootCause] = useState(false);
+  const [startTime, setStartTime] = useState<number>(0);
+  const [tablesExplored, setTablesExplored] = useState<Set<string>>(new Set());
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [filterDifficulty, setFilterDifficulty] = useState<string>("all");
 
-  const filteredChallenges = CHALLENGES.filter((c) => {
-    if (filterDataset !== "all" && c.dataset !== filterDataset) return false;
-    if (filterType !== "all" && c.issueType !== filterType) return false;
-    return true;
-  });
-
-  const issueTypes = [...new Set(CHALLENGES.map((c) => c.issueType))];
+  // Track tables mentioned in queries
+  const trackTables = useCallback(
+    (sql: string) => {
+      if (!selected) return;
+      const lower = sql.toLowerCase();
+      const found = new Set(tablesExplored);
+      selected.tables.forEach((t) => {
+        if (lower.includes(t.toLowerCase())) found.add(t);
+      });
+      setTablesExplored(found);
+    },
+    [selected, tablesExplored]
+  );
 
   const handleRun = useCallback(async () => {
-    if (!selectedChallenge || !query.trim()) return;
+    if (!selected || !query.trim()) return;
     setRunning(true);
     setError(null);
     setResult(null);
+
+    trackTables(query);
 
     try {
       const data = await apiClient<{
@@ -490,184 +524,279 @@ export default function DebugPage() {
         method: "POST",
         body: JSON.stringify({
           query: query.trim(),
-          dataset: selectedChallenge.dataset,
+          dataset: selected.dataset,
         }),
       });
 
       if (data.error) {
         setError(data.error);
+        setQueryHistory((h) => [
+          { query: query.trim(), result: null, error: data.error!, timestamp: Date.now() },
+          ...h,
+        ]);
       } else if (data.user_result) {
-        // Normalize snake_case from API to camelCase
-        setResult({
+        const normalized: QueryResult = {
           columns: data.user_result.columns,
           rows: data.user_result.rows,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           rowCount: (data.user_result as any).row_count ?? data.user_result.rowCount ?? 0,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           executionTimeMs: (data.user_result as any).execution_time_ms ?? data.user_result.executionTimeMs ?? 0,
-        });
+        };
+        setResult(normalized);
+        setQueryHistory((h) => [
+          { query: query.trim(), result: normalized, error: null, timestamp: Date.now() },
+          ...h,
+        ]);
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Query execution failed");
+      const msg = e instanceof Error ? e.message : "Query execution failed";
+      setError(msg);
+      setQueryHistory((h) => [
+        { query: query.trim(), result: null, error: msg, timestamp: Date.now() },
+        ...h,
+      ]);
     } finally {
       setRunning(false);
     }
-  }, [query, selectedChallenge]);
+  }, [query, selected, trackTables]);
+
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height =
+        Math.max(120, textareaRef.current.scrollHeight) + "px";
+    }
+  }, [query]);
+
+  const elapsed = startTime
+    ? Math.floor((Date.now() - startTime) / 1000 / 60)
+    : 0;
+
+  const filteredInvestigations = INVESTIGATIONS.filter((inv) => {
+    if (filterDifficulty !== "all" && inv.difficulty !== filterDifficulty)
+      return false;
+    return true;
+  });
 
   return (
     <div className="mx-auto max-w-[var(--max-width-content)] px-6 py-8">
-      {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-[var(--color-text-primary)]">
-          Data Debugging
-        </h1>
-        <p className="mt-2 text-sm text-[var(--color-text-secondary)]">
-          Real databases have messy data. Find NULL values, duplicates,
-          referential integrity violations, and business logic errors using SQL.
-        </p>
-      </div>
-
-      {!selectedChallenge ? (
-        /* ── Challenge List ── */
+      {!selected ? (
+        /* ── Investigation List ── */
         <div>
-          {/* Filters */}
+          <div className="mb-8">
+            <h1 className="text-2xl font-bold text-[var(--color-text-primary)]">
+              Data Debugging
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[var(--color-text-secondary)]">
+              Don&apos;t just write SQL — learn to investigate data issues like a real analyst.
+              Each scenario presents a business problem with messy data.
+              Your job: find what&apos;s wrong, prove it with queries, and explain the root cause.
+            </p>
+          </div>
+
+          {/* Filter */}
           <div className="mb-6 flex gap-3">
             <select
-              value={filterDataset}
-              onChange={(e) => setFilterDataset(e.target.value)}
-              aria-label="Filter by dataset"
+              value={filterDifficulty}
+              onChange={(e) => setFilterDifficulty(e.target.value)}
+              aria-label="Filter by difficulty"
               className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs text-[var(--color-text-primary)]"
             >
-              <option value="all">All Datasets</option>
-              <option value="ecommerce">E-Commerce</option>
-              <option value="finance">Finance</option>
-              <option value="healthcare">Healthcare</option>
-            </select>
-            <select
-              value={filterType}
-              onChange={(e) => setFilterType(e.target.value)}
-              aria-label="Filter by issue type"
-              className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs text-[var(--color-text-primary)]"
-            >
-              <option value="all">All Issue Types</option>
-              {issueTypes.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
+              <option value="all">All Difficulties</option>
+              <option value="easy">Easy</option>
+              <option value="medium">Medium</option>
+              <option value="hard">Hard</option>
             </select>
           </div>
 
           {/* Grid */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {filteredChallenges.map((c) => (
+            {filteredInvestigations.map((inv) => (
               <button
-                key={c.id}
+                key={inv.id}
                 onClick={() => {
-                  setSelectedChallenge(c);
+                  setSelected(inv);
                   setQuery("");
                   setResult(null);
                   setError(null);
-                  setShowHint(false);
+                  setQueryHistory([]);
+                  setRevealedHints(0);
+                  setCurrentStep(0);
+                  setShowRootCause(false);
+                  setStartTime(Date.now());
+                  setTablesExplored(new Set());
                 }}
-                aria-label={`${c.title} - ${c.difficulty} difficulty, ${c.issueType}`}
-                className="group rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-left transition-all hover:border-[var(--color-accent)]/50 hover:shadow-lg"
+                className="group rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-5 text-left transition-all hover:border-[var(--color-accent)]/50 hover:shadow-lg"
               >
-                <div className="mb-2 flex items-center gap-2">
+                <div className="mb-3 flex items-center gap-2">
                   <span
-                    className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${
-                      difficultyColor[c.difficulty]
-                    }`}
+                    className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${difficultyColor[inv.difficulty]}`}
                   >
-                    {c.difficulty}
+                    {inv.difficulty}
                   </span>
                   <span
                     className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                      issueTypeColor[c.issueType] || "bg-gray-500/20 text-gray-400"
+                      issueTypeColor[inv.issueType] || "bg-gray-500/20 text-gray-400"
                     }`}
                   >
-                    {c.issueType}
+                    {inv.issueType}
                   </span>
                 </div>
                 <h3 className="text-sm font-semibold text-[var(--color-text-primary)] group-hover:text-[var(--color-accent)]">
-                  {c.title}
+                  {inv.title}
                 </h3>
-                <p className="mt-1 line-clamp-2 text-xs text-[var(--color-text-muted)]">
-                  {c.description}
+                <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-[var(--color-text-muted)]">
+                  {inv.context}
                 </p>
-                <div className="mt-3 text-[10px] text-[var(--color-text-muted)]">
-                  {datasetLabel[c.dataset]}
+                <div className="mt-3 flex items-center gap-2 text-[10px] text-[var(--color-text-muted)]">
+                  <span>Tables: {inv.tables.join(", ")}</span>
                 </div>
               </button>
             ))}
           </div>
         </div>
       ) : (
-        /* ── Challenge Detail ── */
+        /* ── Investigation Detail ── */
         <div>
-          {/* Back button */}
           <button
-            onClick={() => {
-              setSelectedChallenge(null);
-              setResult(null);
-              setError(null);
-            }}
-            aria-label="Back to challenge list"
+            onClick={() => setSelected(null)}
             className="mb-4 text-xs font-medium text-[var(--color-accent)] hover:underline"
           >
-            ← Back to challenges
+            ← Back to investigations
           </button>
 
-          <div className="grid gap-6 lg:grid-cols-2">
-            {/* Left: Problem + Editor */}
+          <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
+            {/* Left Column: Context + Editor */}
             <div className="space-y-4">
+              {/* Business Context */}
               <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
                 <div className="mb-3 flex items-center gap-2">
                   <span
-                    className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${
-                      difficultyColor[selectedChallenge.difficulty]
-                    }`}
+                    className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${difficultyColor[selected.difficulty]}`}
                   >
-                    {selectedChallenge.difficulty}
+                    {selected.difficulty}
                   </span>
                   <span
                     className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                      issueTypeColor[selectedChallenge.issueType] ||
-                      "bg-gray-500/20 text-gray-400"
+                      issueTypeColor[selected.issueType] || "bg-gray-500/20 text-gray-400"
                     }`}
                   >
-                    {selectedChallenge.issueType}
-                  </span>
-                  <span className="text-[10px] text-[var(--color-text-muted)]">
-                    {datasetLabel[selectedChallenge.dataset]}
+                    {selected.issueType}
                   </span>
                 </div>
                 <h2 className="text-lg font-bold text-[var(--color-text-primary)]">
-                  {selectedChallenge.title}
+                  {selected.title}
                 </h2>
-                <p className="mt-2 text-sm leading-relaxed text-[var(--color-text-secondary)]">
-                  {selectedChallenge.description}
+                <p className="mt-3 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+                  {selected.context}
                 </p>
+                <div className="mt-4 rounded-md bg-[var(--color-background)] p-3">
+                  <p className="text-xs font-medium text-[var(--color-accent)]">
+                    Your Task
+                  </p>
+                  <p className="mt-1 text-sm text-[var(--color-text-primary)]">
+                    {selected.task}
+                  </p>
+                </div>
+                <div className="mt-3 text-xs text-[var(--color-text-muted)]">
+                  <span className="font-medium">Available tables:</span>{" "}
+                  {selected.tables.map((t, i) => (
+                    <span key={t}>
+                      <code className="rounded bg-[var(--color-background)] px-1 py-0.5 text-[var(--color-accent)]">
+                        {t}
+                      </code>
+                      {i < selected.tables.length - 1 && ", "}
+                    </span>
+                  ))}
+                </div>
+              </div>
 
-                {/* Hint */}
-                <div className="mt-4">
-                  {showHint ? (
-                    <div className="rounded-md bg-[var(--color-background)] p-3 text-xs text-[var(--color-text-secondary)]">
-                      <span className="font-medium text-[var(--color-accent)]">
-                        Hint:
-                      </span>{" "}
-                      {selectedChallenge.hint}
+              {/* Investigation Steps */}
+              <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+                <h3 className="text-xs font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
+                  Investigation Steps
+                </h3>
+                <div className="mt-3 space-y-3">
+                  {selected.steps.map((step, i) => (
+                    <div
+                      key={i}
+                      className={`flex gap-3 rounded-md p-2 transition-colors ${
+                        i === currentStep
+                          ? "bg-[var(--color-accent)]/10"
+                          : i < currentStep
+                            ? "opacity-60"
+                            : "opacity-40"
+                      }`}
+                    >
+                      <div
+                        className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                          i < currentStep
+                            ? "bg-green-500/20 text-green-400"
+                            : i === currentStep
+                              ? "bg-[var(--color-accent)]/20 text-[var(--color-accent)]"
+                              : "bg-[var(--color-border)] text-[var(--color-text-muted)]"
+                        }`}
+                      >
+                        {i < currentStep ? "✓" : i + 1}
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-[var(--color-text-primary)]">
+                          {step.title}
+                        </p>
+                        <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
+                          {step.description}
+                        </p>
+                      </div>
                     </div>
-                  ) : (
+                  ))}
+                </div>
+                {currentStep < selected.steps.length && (
+                  <button
+                    onClick={() =>
+                      setCurrentStep((s) => Math.min(s + 1, selected.steps.length))
+                    }
+                    className="mt-3 text-xs font-medium text-[var(--color-accent)] hover:underline"
+                  >
+                    Mark step as done →
+                  </button>
+                )}
+              </div>
+
+              {/* Hints */}
+              <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+                <h3 className="text-xs font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
+                  Hints ({revealedHints}/{selected.hints.length})
+                </h3>
+                <div className="mt-3 space-y-2">
+                  {selected.hints.map((hint, i) =>
+                    i < revealedHints ? (
+                      <div
+                        key={i}
+                        className="rounded-md bg-[var(--color-background)] p-3 text-xs text-[var(--color-text-secondary)]"
+                      >
+                        <span className="font-medium text-[var(--color-accent)]">
+                          {hint.label}:
+                        </span>{" "}
+                        {hint.text}
+                      </div>
+                    ) : null
+                  )}
+                  {revealedHints < selected.hints.length && (
                     <button
-                      onClick={() => setShowHint(true)}
-                      aria-label="Show hint for this challenge"
+                      onClick={() => setRevealedHints((h) => h + 1)}
                       className="text-xs font-medium text-[var(--color-accent)] hover:underline"
                     >
-                      Show hint
+                      Reveal {selected.hints[revealedHints].label}
                     </button>
                   )}
                 </div>
               </div>
+            </div>
 
+            {/* Right Column: Editor + Results + Investigation Panel */}
+            <div className="space-y-4">
               {/* SQL Editor */}
               <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]">
                 <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-2">
@@ -677,13 +806,22 @@ export default function DebugPage() {
                   <button
                     onClick={handleRun}
                     disabled={running || !query.trim()}
-                    aria-label="Run SQL query"
-                    className="rounded-md bg-[var(--color-accent)] px-3 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                    className="flex items-center gap-1.5 rounded-md bg-[var(--color-accent)] px-3 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
                   >
-                    {running ? "Running..." : "▶ Run"}
+                    <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M8 5v14l11-7z" />
+                    </svg>
+                    {running ? "Running..." : "Run"}
+                    <kbd className="ml-1 rounded bg-white/20 px-1 py-0.5 text-[10px]">
+                      {typeof navigator !== "undefined" &&
+                      /Mac/.test(navigator.userAgent)
+                        ? "⌘↵"
+                        : "Ctrl+↵"}
+                    </kbd>
                   </button>
                 </div>
                 <textarea
+                  ref={textareaRef}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => {
@@ -691,22 +829,17 @@ export default function DebugPage() {
                       handleRun();
                     }
                   }}
-                  placeholder="Write your SQL query to find the data issues..."
-                  className="h-40 w-full resize-none bg-transparent p-4 font-mono text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:outline-none"
+                  placeholder="Write your investigative query here..."
+                  className="min-h-[120px] w-full resize-none bg-transparent p-4 font-mono text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:outline-none"
                   spellCheck={false}
                 />
               </div>
-            </div>
 
-            {/* Right: Results */}
-            <div className="space-y-4" role="status" aria-live="polite">
               {/* Error */}
               {error && (
                 <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4">
                   <h3 className="text-xs font-medium text-red-400">Error</h3>
-                  <p className="mt-1 font-mono text-xs text-red-300">
-                    {error}
-                  </p>
+                  <p className="mt-1 font-mono text-xs text-red-300">{error}</p>
                 </div>
               )}
 
@@ -722,20 +855,14 @@ export default function DebugPage() {
                       {result.executionTimeMs}ms
                     </span>
                   </div>
-
                   {result.rowCount === 0 ? (
-                    <div className="p-8 text-center">
-                      <div className="text-2xl">✅</div>
-                      <p className="mt-2 text-sm font-medium text-green-400">
-                        No issues found
-                      </p>
-                      <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-                        Your query returned 0 rows — the data looks clean for
-                        this check.
+                    <div className="p-6 text-center">
+                      <p className="text-sm text-[var(--color-text-muted)]">
+                        Query returned 0 rows. Try a different approach.
                       </p>
                     </div>
                   ) : (
-                    <div className="max-h-96 overflow-auto">
+                    <div className="max-h-72 overflow-auto">
                       <table className="w-full text-xs">
                         <thead className="sticky top-0 bg-[var(--color-surface)]">
                           <tr className="border-b border-[var(--color-border)]">
@@ -778,18 +905,130 @@ export default function DebugPage() {
 
               {/* Idle state */}
               {!result && !error && (
-                <div className="flex h-64 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-surface)]">
+                <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-surface)]">
                   <div className="text-center">
-                    <div className="text-3xl opacity-30">🔍</div>
-                    <p className="mt-2 text-sm text-[var(--color-text-muted)]">
-                      Write a query to investigate the data issue
+                    <p className="text-sm text-[var(--color-text-muted)]">
+                      Run queries to investigate the issue
                     </p>
                     <p className="mt-1 text-[10px] text-[var(--color-text-muted)]">
-                      Ctrl+Enter to run
+                      Ctrl+Enter to execute
                     </p>
                   </div>
                 </div>
               )}
+
+              {/* Investigation Panel */}
+              <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+                <h3 className="text-xs font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
+                  Investigation Progress
+                </h3>
+                <div className="mt-3 grid grid-cols-3 gap-3">
+                  <div className="rounded-md bg-[var(--color-background)] p-3 text-center">
+                    <p className="text-lg font-bold text-[var(--color-accent)]">
+                      {queryHistory.length}
+                    </p>
+                    <p className="text-[10px] text-[var(--color-text-muted)]">
+                      Queries Run
+                    </p>
+                  </div>
+                  <div className="rounded-md bg-[var(--color-background)] p-3 text-center">
+                    <p className="text-lg font-bold text-[var(--color-accent)]">
+                      {elapsed}m
+                    </p>
+                    <p className="text-[10px] text-[var(--color-text-muted)]">
+                      Time Spent
+                    </p>
+                  </div>
+                  <div className="rounded-md bg-[var(--color-background)] p-3 text-center">
+                    <p className="text-lg font-bold text-[var(--color-accent)]">
+                      {tablesExplored.size}/{selected.tables.length}
+                    </p>
+                    <p className="text-[10px] text-[var(--color-text-muted)]">
+                      Tables Explored
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Query History */}
+              {queryHistory.length > 0 && (
+                <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+                  <h3 className="text-xs font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
+                    Query History
+                  </h3>
+                  <div className="mt-3 max-h-48 space-y-2 overflow-auto">
+                    {queryHistory.map((log, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setQuery(log.query)}
+                        className="w-full rounded-md bg-[var(--color-background)] p-2 text-left transition-colors hover:bg-[var(--color-border)]/50"
+                      >
+                        <code className="line-clamp-1 text-[11px] text-[var(--color-text-secondary)]">
+                          {log.query}
+                        </code>
+                        <div className="mt-1 flex items-center gap-2 text-[10px] text-[var(--color-text-muted)]">
+                          {log.error ? (
+                            <span className="text-red-400">Error</span>
+                          ) : (
+                            <span>
+                              {log.result?.rowCount} row
+                              {log.result?.rowCount !== 1 ? "s" : ""} •{" "}
+                              {log.result?.executionTimeMs}ms
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Root Cause Reveal */}
+              <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+                {showRootCause ? (
+                  <div className="space-y-4">
+                    <div>
+                      <h3 className="text-xs font-medium uppercase tracking-wider text-red-400">
+                        Root Cause
+                      </h3>
+                      <p className="mt-2 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+                        {selected.rootCause}
+                      </p>
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-medium uppercase tracking-wider text-green-400">
+                        The Fix
+                      </h3>
+                      <p className="mt-2 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+                        {selected.fix}
+                      </p>
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-medium uppercase tracking-wider text-[var(--color-accent)]">
+                        What You Learned
+                      </h3>
+                      <ul className="mt-2 space-y-1">
+                        {selected.learnings.map((l, i) => (
+                          <li
+                            key={i}
+                            className="flex items-start gap-2 text-xs text-[var(--color-text-secondary)]"
+                          >
+                            <span className="mt-0.5 text-[var(--color-accent)]">•</span>
+                            {l}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowRootCause(true)}
+                    className="w-full text-center text-xs font-medium text-[var(--color-accent)] hover:underline"
+                  >
+                    Reveal Root Cause & Solution
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
