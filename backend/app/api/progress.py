@@ -102,6 +102,17 @@ def _ensure_tables():
                 WHEN duplicate_column THEN NULL;
             END $$;
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS sqlit_user_data (
+                id SERIAL PRIMARY KEY,
+                auth0_sub VARCHAR(255) UNIQUE NOT NULL,
+                notes JSONB DEFAULT '{}'::jsonb,
+                flagged_problems JSONB DEFAULT '[]'::jsonb,
+                acceptance_history JSONB DEFAULT '{"correct":0,"total":0}'::jsonb,
+                settings JSONB DEFAULT '{}'::jsonb,
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
         conn.commit()
         cur.close()
         _put_db_conn(conn)
@@ -445,6 +456,123 @@ async def get_stats(x_user_sub: str | None = Header(None)):
         total_solved=len(record["solved"]),
         xp_to_next_level=xp_to_next,
     )
+
+
+class UserDataPayload(BaseModel):
+    notes: dict[str, str] | None = None
+    flagged_problems: list[str] | None = None
+    acceptance_history: dict[str, int] | None = None
+    settings: dict[str, Any] | None = None
+
+
+class UserDataResponse(BaseModel):
+    notes: dict[str, str]
+    flagged_problems: list[str]
+    acceptance_history: dict[str, int]
+    settings: dict[str, Any]
+
+
+@router.get("/userdata", response_model=UserDataResponse)
+async def get_user_data(x_user_sub: str | None = Header(None)):
+    """Return the user's synced data (notes, flags, settings)."""
+    sub = _get_user_sub(x_user_sub)
+    conn = None
+    try:
+        if not _ensure_tables():
+            return UserDataResponse(notes={}, flagged_problems=[], acceptance_history={"correct": 0, "total": 0}, settings={})
+        conn = _get_db_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT notes, flagged_problems, acceptance_history, settings FROM sqlit_user_data WHERE auth0_sub = %s", (sub,))
+        row = cur.fetchone()
+        cur.close()
+        _put_db_conn(conn)
+        if row:
+            return UserDataResponse(
+                notes=row[0] or {},
+                flagged_problems=row[1] or [],
+                acceptance_history=row[2] or {"correct": 0, "total": 0},
+                settings=row[3] or {},
+            )
+        return UserDataResponse(notes={}, flagged_problems=[], acceptance_history={"correct": 0, "total": 0}, settings={})
+    except Exception as e:
+        logger.warning("Failed to load user data for %s: %s", sub, e)
+        if conn:
+            _put_db_conn(conn)
+        return UserDataResponse(notes={}, flagged_problems=[], acceptance_history={"correct": 0, "total": 0}, settings={})
+
+
+@router.put("/userdata", response_model=UserDataResponse)
+async def save_user_data(body: UserDataPayload, x_user_sub: str | None = Header(None)):
+    """Save the user's notes, flags, settings to PostgreSQL."""
+    sub = _get_user_sub(x_user_sub)
+    conn = None
+    try:
+        if not _ensure_tables():
+            raise HTTPException(status_code=503, detail="Database unavailable")
+        conn = _get_db_conn()
+        cur = conn.cursor()
+
+        import json
+        notes_json = json.dumps(body.notes) if body.notes is not None else None
+        flags_json = json.dumps(body.flagged_problems) if body.flagged_problems is not None else None
+        accept_json = json.dumps(body.acceptance_history) if body.acceptance_history is not None else None
+        settings_json = json.dumps(body.settings) if body.settings is not None else None
+
+        # Upsert: insert or update only the fields that are provided
+        cur.execute("SELECT id FROM sqlit_user_data WHERE auth0_sub = %s", (sub,))
+        exists = cur.fetchone()
+
+        if exists:
+            updates = []
+            params: list[Any] = []
+            if notes_json is not None:
+                updates.append("notes = %s::jsonb")
+                params.append(notes_json)
+            if flags_json is not None:
+                updates.append("flagged_problems = %s::jsonb")
+                params.append(flags_json)
+            if accept_json is not None:
+                updates.append("acceptance_history = %s::jsonb")
+                params.append(accept_json)
+            if settings_json is not None:
+                updates.append("settings = %s::jsonb")
+                params.append(settings_json)
+            if updates:
+                updates.append("updated_at = NOW()")
+                params.append(sub)
+                cur.execute(f"UPDATE sqlit_user_data SET {', '.join(updates)} WHERE auth0_sub = %s", params)
+        else:
+            cur.execute(
+                """INSERT INTO sqlit_user_data (auth0_sub, notes, flagged_problems, acceptance_history, settings)
+                   VALUES (%s, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb)""",
+                (sub, notes_json or '{}', flags_json or '[]', accept_json or '{"correct":0,"total":0}', settings_json or '{}'),
+            )
+
+        conn.commit()
+
+        # Read back the saved data
+        cur.execute("SELECT notes, flagged_problems, acceptance_history, settings FROM sqlit_user_data WHERE auth0_sub = %s", (sub,))
+        row = cur.fetchone()
+        cur.close()
+        _put_db_conn(conn)
+
+        return UserDataResponse(
+            notes=row[0] or {},
+            flagged_problems=row[1] or [],
+            acceptance_history=row[2] or {"correct": 0, "total": 0},
+            settings=row[3] or {},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("Failed to save user data for %s: %s", sub, e)
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            _put_db_conn(conn)
+        raise HTTPException(status_code=500, detail="Failed to save user data")
 
 
 @router.get("/leaderboard", response_model=LeaderboardResponse)

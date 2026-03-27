@@ -63,7 +63,17 @@ interface UserState {
   syncFromAuth0: (user: { name?: string; email?: string; picture?: string; sub?: string }) => void;
   syncFromBackend: () => Promise<void>;
   saveSolveToBackend: (problemId: string, xpEarned: number) => Promise<void>;
+  saveUserDataToBackend: () => Promise<void>;
   logout: () => void;
+}
+
+/* ── Debounced save helper ─────────────────────────────────── */
+let _saveTimer: ReturnType<typeof setTimeout> | null = null;
+function _debounceSaveUserData() {
+  if (_saveTimer) clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => {
+    useUserStore.getState().saveUserDataToBackend().catch(() => {});
+  }, 2000);
 }
 
 export const useUserStore = create<UserState>()(
@@ -129,15 +139,18 @@ export const useUserStore = create<UserState>()(
           };
         }),
 
-      recordAttempt: (correct) =>
+      recordAttempt: (correct) => {
         set((state) => ({
           acceptanceHistory: {
             correct: state.acceptanceHistory.correct + (correct ? 1 : 0),
             total: state.acceptanceHistory.total + 1,
           },
-        })),
+        }));
+        // Debounced save — acceptance history changes frequently
+        _debounceSaveUserData();
+      },
 
-      setNote: (problemId, note) =>
+      setNote: (problemId, note) => {
         set((state) => {
           const newNotes = { ...state.notes };
           if (note.trim()) {
@@ -146,14 +159,18 @@ export const useUserStore = create<UserState>()(
             delete newNotes[problemId];
           }
           return { notes: newNotes };
-        }),
+        });
+        _debounceSaveUserData();
+      },
 
-      toggleFlag: (problemId) =>
+      toggleFlag: (problemId) => {
         set((state) => ({
           flaggedProblems: state.flaggedProblems.includes(problemId)
             ? state.flaggedProblems.filter((id) => id !== problemId)
             : [...state.flaggedProblems, problemId],
-        })),
+        }));
+        _debounceSaveUserData();
+      },
 
       syncFromAuth0: (user) =>
         set({
@@ -166,53 +183,81 @@ export const useUserStore = create<UserState>()(
 
       syncFromBackend: async () => {
         try {
-          const res = await fetch("/api/progress");
-          if (!res.ok) return;
-          const data = await res.json();
+          // Fetch progress and user data in parallel
+          const [progressRes, userDataRes] = await Promise.all([
+            fetch("/api/progress"),
+            fetch("/api/progress/userdata"),
+          ]);
 
-          const solves: { problem_id: string; solved_at: string }[] = data.solved || [];
-          const backendSolvedIds = solves.map((s) => s.problem_id);
-
-          // If backend has no data, keep localStorage data (don't wipe it)
           const local = get();
-          if (backendSolvedIds.length === 0 && local.solvedProblems.length > 0) {
-            // Backend is empty but we have local data — skip overwrite.
-            // The local solves will be pushed to backend on next solve.
-            return;
-          }
 
-          // Merge: use backend as source of truth, but keep any local solves
-          // that haven't been synced yet
-          const mergedSolvedIds = [...new Set([...backendSolvedIds, ...local.solvedProblems])];
+          // Sync progress (XP, streak, solves)
+          if (progressRes.ok) {
+            const data = await progressRes.json();
+            const solves: { problem_id: string; solved_at: string }[] = data.solved || [];
+            const backendSolvedIds = solves.map((s) => s.problem_id);
 
-          // Build activity data from solve timestamps
-          const activity: Record<string, number> = { ...local.activityData };
-          // Count backend solves per day
-          const backendCounts: Record<string, number> = {};
-          for (const s of solves) {
-            if (s.solved_at) {
-              const dateStr = s.solved_at.slice(0, 10);
-              backendCounts[dateStr] = (backendCounts[dateStr] || 0) + 1;
+            if (!(backendSolvedIds.length === 0 && local.solvedProblems.length > 0)) {
+              const mergedSolvedIds = [...new Set([...backendSolvedIds, ...local.solvedProblems])];
+
+              const activity: Record<string, number> = { ...local.activityData };
+              const backendCounts: Record<string, number> = {};
+              for (const s of solves) {
+                if (s.solved_at) {
+                  const dateStr = s.solved_at.slice(0, 10);
+                  backendCounts[dateStr] = (backendCounts[dateStr] || 0) + 1;
+                }
+              }
+              for (const [dateStr, count] of Object.entries(backendCounts)) {
+                activity[dateStr] = Math.max(count, activity[dateStr] || 0);
+              }
+
+              const backendXP = data.xp ?? 0;
+              const finalXP = Math.max(backendXP, local.xp);
+
+              set({
+                xp: finalXP,
+                level: computeLevel(finalXP),
+                streak: Math.max(data.streak ?? 0, local.streak),
+                solvedProblems: mergedSolvedIds,
+                totalSolves: mergedSolvedIds.length,
+                lastSolveDate: data.last_solve_date || local.lastSolveDate,
+                activityData: activity,
+              });
             }
           }
-          // Merge: take the higher of backend vs local for each day
-          for (const [dateStr, count] of Object.entries(backendCounts)) {
-            activity[dateStr] = Math.max(count, activity[dateStr] || 0);
+
+          // Sync user data (notes, flags, acceptance, settings)
+          if (userDataRes.ok) {
+            const userData = await userDataRes.json();
+
+            // Merge notes: backend + local, local takes priority for conflicts
+            const mergedNotes = { ...(userData.notes || {}), ...local.notes };
+
+            // Merge flags: union of both
+            const mergedFlags = [...new Set([...(userData.flagged_problems || []), ...local.flaggedProblems])];
+
+            // Acceptance history: take the higher values
+            const backendAccept = userData.acceptance_history || { correct: 0, total: 0 };
+            const mergedAccept = {
+              correct: Math.max(backendAccept.correct || 0, local.acceptanceHistory.correct),
+              total: Math.max(backendAccept.total || 0, local.acceptanceHistory.total),
+            };
+
+            set({
+              notes: mergedNotes,
+              flaggedProblems: mergedFlags,
+              acceptanceHistory: mergedAccept,
+            });
+
+            // Push merged data back to backend if local had data backend didn't
+            const localHasExtra = Object.keys(local.notes).length > 0 ||
+              local.flaggedProblems.length > 0 ||
+              local.acceptanceHistory.total > (backendAccept.total || 0);
+            if (localHasExtra) {
+              get().saveUserDataToBackend().catch(() => {});
+            }
           }
-
-          // Use the higher value between backend and local for XP/streak
-          const backendXP = data.xp ?? 0;
-          const finalXP = Math.max(backendXP, local.xp);
-
-          set({
-            xp: finalXP,
-            level: computeLevel(finalXP),
-            streak: Math.max(data.streak ?? 0, local.streak),
-            solvedProblems: mergedSolvedIds,
-            totalSolves: mergedSolvedIds.length,
-            lastSolveDate: data.last_solve_date || local.lastSolveDate,
-            activityData: activity,
-          });
         } catch {
           // Backend unavailable — keep localStorage data
         }
@@ -233,6 +278,27 @@ export const useUserStore = create<UserState>()(
           }
         } catch (err) {
           console.warn("[SQLit] Backend unavailable for save:", err);
+        }
+      },
+
+      saveUserDataToBackend: async () => {
+        const state = get();
+        if (!state.isAuthenticated) return;
+        try {
+          const res = await fetch("/api/progress/userdata", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              notes: state.notes,
+              flagged_problems: state.flaggedProblems,
+              acceptance_history: state.acceptanceHistory,
+            }),
+          });
+          if (!res.ok) {
+            console.warn("[SQLit] Failed to save user data:", res.status);
+          }
+        } catch (err) {
+          console.warn("[SQLit] Backend unavailable for user data save:", err);
         }
       },
 
