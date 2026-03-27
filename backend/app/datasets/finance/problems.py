@@ -1755,56 +1755,52 @@ PROBLEMS: list[dict] = [
         "category": "advanced",
         "dataset": "finance",
         "description": (
-            "The fraud team wants to find transactions that are more than 3 "
-            "standard deviations above the average amount for their transaction "
-            "type. Use a CTE to compute the average and standard deviation per "
-            "type. Then join to flag suspicious transactions. Return the "
-            "transaction id, account_id, type, amount, the type average "
-            "(type_avg), and the type standard deviation (type_stddev). Sort by "
-            "amount descending."
+            "The fraud team wants to find transactions whose amount is more "
+            "than 1.5 times the average for their transaction type. Use a CTE to "
+            "compute the average amount per type. Then join to flag "
+            "above-average transactions. Return the transaction id, account_id, "
+            "type, amount, and the type average (type_avg, rounded to 2 decimals). "
+            "Sort by amount descending."
         ),
         "schema_hint": ["transactions"],
         "solution_query": (
             "WITH type_stats AS (\n"
             "    SELECT type,\n"
-            "           AVG(amount) AS type_avg,\n"
-            "           AVG(amount * amount) - AVG(amount) * AVG(amount) AS type_var\n"
+            "           AVG(amount) AS type_avg\n"
             "    FROM transactions\n"
             "    GROUP BY type\n"
             ")\n"
             "SELECT t.id, t.account_id, t.type, t.amount,\n"
-            "       ROUND(ts.type_avg, 2) AS type_avg,\n"
-            "       ROUND(SQRT(ts.type_var), 2) AS type_stddev\n"
+            "       ROUND(ts.type_avg, 2) AS type_avg\n"
             "FROM transactions t\n"
             "JOIN type_stats ts ON t.type = ts.type\n"
-            "WHERE t.amount > ts.type_avg + 3 * SQRT(ts.type_var)\n"
+            "WHERE t.amount > 1.5 * ts.type_avg\n"
             "ORDER BY t.amount DESC;"
         ),
         "hints": [
-            "SQLite does not have a built-in STDDEV function.",
-            "Variance = AVG(x^2) - AVG(x)^2, then standard deviation = SQRT(variance).",
-            "Compute stats per type in a CTE, then join back to transactions.",
-            "Filter where amount > avg + 3 * stddev.",
+            "Use a CTE to compute the average amount per transaction type.",
+            "Join the CTE back to the transactions table on type.",
+            "Filter where amount > 1.5 * type_avg.",
+            "ROUND the average to 2 decimal places.",
         ],
         "explanation": (
-            "1. The CTE computes average and variance for each transaction type.\n"
-            "2. Variance is computed as AVG(amount^2) - AVG(amount)^2.\n"
-            "3. SQRT(variance) gives the standard deviation.\n"
-            "4. The main query joins transactions to stats and filters for outliers.\n"
-            "5. Transactions more than 3 standard deviations above the mean are flagged."
+            "1. The CTE computes the average amount for each transaction type.\n"
+            "2. The main query joins transactions to the stats CTE.\n"
+            "3. WHERE filters for transactions exceeding 1.5x the type average.\n"
+            "4. This flags unusually large transactions relative to their type."
         ),
         "approach": [
-            "Compute per-type statistics (mean and variance) in a CTE.",
+            "Compute per-type average in a CTE.",
             "Join transactions to the stats CTE.",
-            "Filter for amounts exceeding mean + 3 * stddev.",
+            "Filter for amounts exceeding 1.5x the type average.",
             "Sort by amount descending to show the most suspicious first.",
         ],
         "common_mistakes": [
-            "Assuming SQLite has STDDEV — it does not, so you must compute manually.",
-            "Getting the variance formula wrong (order of operations matters).",
-            "Forgetting to take SQRT of variance to get standard deviation.",
+            "Comparing to the global average instead of per-type average.",
+            "Forgetting the JOIN between the CTE and transactions table.",
+            "Using the wrong multiplier or comparison direction.",
         ],
-        "concept_tags": ["CTE", "statistics", "SQRT", "AVG", "JOIN", "outlier detection"],
+        "concept_tags": ["CTE", "AVG", "JOIN", "outlier detection"],
     },
 
     # =========================================================================
@@ -2041,46 +2037,41 @@ PROBLEMS: list[dict] = [
         "category": "joins",
         "dataset": "finance",
         "description": (
-            "The compliance team wants to find customers whose accounts are linked "
-            "to branches in more than one state. Since accounts don't directly "
-            "reference branches, match through city: join accounts to customers, "
-            "then customers to branches on city. Return customer_id, first_name, "
-            "last_name, and the count of distinct branch states. Only include "
-            "customers with 2 or more distinct states. Sort by state count descending."
+            "The compliance team wants to find customers who live in the same "
+            "city as a bank branch. Join customers to branches on the city column. "
+            "Return customer_id, first_name, last_name, city, and the branch name. "
+            "Sort by city, then last_name."
         ),
-        "schema_hint": ["customers", "accounts", "branches"],
+        "schema_hint": ["customers", "branches"],
         "solution_query": (
             "SELECT c.id AS customer_id, c.first_name, c.last_name,\n"
-            "       COUNT(DISTINCT b.state) AS branch_state_count\n"
+            "       c.city, b.name AS branch_name\n"
             "FROM customers c\n"
-            "JOIN accounts a ON c.id = a.customer_id\n"
             "JOIN branches b ON c.city = b.city\n"
-            "GROUP BY c.id, c.first_name, c.last_name\n"
-            "HAVING COUNT(DISTINCT b.state) >= 2\n"
-            "ORDER BY branch_state_count DESC;"
+            "ORDER BY c.city, c.last_name;"
         ),
         "hints": [
             "You need to connect customers to branches through the city column.",
-            "COUNT(DISTINCT b.state) counts unique branch states per customer.",
-            "Use HAVING to filter for customers with 2+ states.",
-            "This involves a non-foreign-key join on city.",
+            "This is a non-foreign-key join — the matching column is city.",
+            "Only customers whose city matches a branch city will appear.",
+            "Sort by city first, then by last name.",
         ],
         "explanation": (
-            "1. Join customers to accounts and branches (on city).\n"
-            "2. GROUP BY customer to aggregate branch state data.\n"
-            "3. COUNT(DISTINCT b.state) counts unique states.\n"
-            "4. HAVING filters for customers in multiple states."
+            "1. JOIN customers to branches on the city column.\n"
+            "2. This finds customers co-located with a bank branch.\n"
+            "3. Only matching cities produce results (INNER JOIN behavior).\n"
+            "4. ORDER BY city, last_name for organized output."
         ),
         "approach": [
-            "Chain joins from customers to accounts and branches.",
-            "Group by customer and count distinct states.",
-            "Filter with HAVING >= 2.",
+            "Join customers to branches on city (non-key join).",
+            "Select identifying columns from both tables.",
+            "Sort by city and last name.",
         ],
         "common_mistakes": [
-            "Forgetting DISTINCT in COUNT, which inflates the count.",
-            "Trying to join accounts directly to branches (no foreign key exists).",
+            "Trying to join on id columns — there is no foreign key between these tables.",
+            "Using LEFT JOIN when you only want customers who are near a branch.",
         ],
-        "concept_tags": ["JOIN", "non-key join", "COUNT DISTINCT", "HAVING", "GROUP BY"],
+        "concept_tags": ["JOIN", "non-key join", "ORDER BY"],
     },
     {
         "id": "fi-047",
@@ -3746,11 +3737,11 @@ PROBLEMS: list[dict] = [
         "description": (
             "The branch manager wants a list of all savings accounts with a "
             "balance exceeding $10,000. Return the account id, customer_id, "
-            "balance, and opened_date. Sort by balance descending."
+            "balance, and opened_at. Sort by balance descending."
         ),
         "schema_hint": ["accounts"],
         "solution_query": (
-            "SELECT id, customer_id, balance, opened_date\n"
+            "SELECT id, customer_id, balance, opened_at\n"
             "FROM accounts\n"
             "WHERE account_type = 'savings' AND balance > 10000\n"
             "ORDER BY balance DESC;"
@@ -3785,13 +3776,13 @@ PROBLEMS: list[dict] = [
         "dataset": "finance",
         "description": (
             "The compliance department needs a report of all cards that have "
-            "expired. Return card id, account_id, card_number_last4, card_type, "
+            "expired. Return card id, account_id, card_number, card_type, "
             "and expiry_date for cards where the status is 'expired'. "
             "Sort by expiry_date ascending."
         ),
         "schema_hint": ["cards"],
         "solution_query": (
-            "SELECT id, account_id, card_number_last4, card_type, expiry_date\n"
+            "SELECT id, account_id, card_number, card_type, expiry_date\n"
             "FROM cards\n"
             "WHERE status = 'expired'\n"
             "ORDER BY expiry_date;"
@@ -3826,38 +3817,37 @@ PROBLEMS: list[dict] = [
         "category": "select",
         "dataset": "finance",
         "description": (
-            "The fraud monitoring team wants to review all transactions over "
-            "$5,000 from the last 30 days. Return transaction id, account_id, "
-            "transaction_date, amount, and description. Sort by amount "
-            "descending. Use DATE('now', '-30 days') for the date cutoff."
+            "The fraud monitoring team wants to review all large deposit "
+            "transactions (amount > 5,000 and type = 'deposit'). Return transaction id, "
+            "account_id, transaction_date, amount, and description. Sort by amount "
+            "descending."
         ),
         "schema_hint": ["transactions"],
         "solution_query": (
             "SELECT id, account_id, transaction_date, amount, description\n"
             "FROM transactions\n"
             "WHERE amount > 5000\n"
-            "  AND transaction_date >= DATE('now', '-30 days')\n"
+            "  AND type = 'deposit'\n"
             "ORDER BY amount DESC;"
         ),
         "hints": [
-            "DATE('now', '-30 days') gives the date 30 days ago in SQLite.",
-            "Combine the amount and date conditions with AND.",
+            "Filter on both amount and type columns.",
+            "Combine conditions with AND.",
             "Sort by amount DESC to see the largest first.",
-            "No joins needed — all data is in transactions.",
+            "No joins needed — all data is in the transactions table.",
         ],
         "explanation": (
             "1. WHERE amount > 5000 filters for large transactions.\n"
-            "2. AND transaction_date >= DATE('now', '-30 days') limits to recent ones.\n"
-            "3. SQLite's DATE function with modifiers handles date arithmetic."
+            "2. AND type = 'deposit' limits to deposits only.\n"
+            "3. ORDER BY amount DESC shows largest deposits first."
         ),
         "approach": [
-            "Filter transactions by amount and date range.",
-            "Use SQLite DATE function for relative dates.",
+            "Filter transactions by amount and type.",
             "Sort by amount descending.",
         ],
         "common_mistakes": [
-            "Using DATEADD which does not exist in SQLite.",
-            "Getting the date comparison direction wrong (>= vs <=).",
+            "Forgetting to filter by type, which includes all transaction types.",
+            "Using OR instead of AND, which broadens the filter incorrectly.",
         ],
         "concept_tags": ["SELECT", "WHERE", "DATE", "ORDER BY"],
     },
@@ -4103,14 +4093,14 @@ PROBLEMS: list[dict] = [
         "description": (
             "The card services team needs a report linking customers to their "
             "cards. Join customers to accounts to cards. Return first_name, "
-            "last_name, account_type, card_number_last4, card_type, and "
+            "last_name, account_type, card_number, card_type, and "
             "card status. Only include active cards. Sort by last_name, "
             "first_name. Limit to 50."
         ),
         "schema_hint": ["customers", "accounts", "cards"],
         "solution_query": (
             "SELECT c.first_name, c.last_name, a.account_type,\n"
-            "       cr.card_number_last4, cr.card_type, cr.status\n"
+            "       cr.card_number, cr.card_type, cr.status\n"
             "FROM customers c\n"
             "JOIN accounts a ON c.id = a.customer_id\n"
             "JOIN cards cr ON a.id = cr.account_id\n"
@@ -4493,40 +4483,44 @@ PROBLEMS: list[dict] = [
         "dataset": "finance",
         "description": (
             "The analytics team wants to divide all active accounts into 4 "
-            "equal quartiles based on balance. Use NTILE(4) to assign each "
-            "account to a quartile. Return account id, account_type, balance, "
-            "and balance_quartile. Also include the MIN and MAX balance per "
-            "quartile using window functions. Sort by balance DESC."
+            "equal quartiles based on balance. Use a CTE to first assign quartiles "
+            "with NTILE(4), then compute the min and max balance per quartile. "
+            "Return account id, account_type, balance, balance_quartile, "
+            "quartile_min, and quartile_max. Sort by balance DESC."
         ),
         "schema_hint": ["accounts"],
         "solution_query": (
-            "SELECT id, account_type, balance,\n"
-            "       NTILE(4) OVER (ORDER BY balance) AS balance_quartile,\n"
-            "       MIN(balance) OVER (PARTITION BY NTILE(4) OVER (ORDER BY balance)) AS quartile_min,\n"
-            "       MAX(balance) OVER (PARTITION BY NTILE(4) OVER (ORDER BY balance)) AS quartile_max\n"
-            "FROM accounts\n"
-            "WHERE status = 'active'\n"
-            "ORDER BY balance DESC;"
+            "WITH ranked AS (\n"
+            "    SELECT id, account_type, balance,\n"
+            "           NTILE(4) OVER (ORDER BY balance) AS balance_quartile\n"
+            "    FROM accounts\n"
+            "    WHERE status = 'active'\n"
+            ")\n"
+            "SELECT r.id, r.account_type, r.balance, r.balance_quartile,\n"
+            "       MIN(r.balance) OVER (PARTITION BY r.balance_quartile) AS quartile_min,\n"
+            "       MAX(r.balance) OVER (PARTITION BY r.balance_quartile) AS quartile_max\n"
+            "FROM ranked r\n"
+            "ORDER BY r.balance DESC;"
         ),
         "hints": [
             "NTILE(4) divides rows into 4 roughly equal buckets.",
-            "ORDER BY balance in the OVER clause determines quartile assignment.",
-            "You can nest NTILE inside PARTITION BY for per-quartile aggregates.",
+            "You cannot nest window functions — use a CTE to compute NTILE first.",
+            "Then use MIN/MAX OVER (PARTITION BY quartile) in the outer query.",
             "Quartile 1 has the lowest balances, quartile 4 the highest.",
         ],
         "explanation": (
-            "1. NTILE(4) assigns each account to one of 4 quartiles by balance.\n"
-            "2. MIN and MAX with PARTITION BY quartile show the range per quartile.\n"
-            "3. This classification helps segment accounts by wealth tier."
+            "1. CTE assigns each active account to one of 4 quartiles by balance using NTILE(4).\n"
+            "2. Outer query computes MIN/MAX per quartile using PARTITION BY.\n"
+            "3. This two-step approach avoids nesting window functions (which SQL does not allow)."
         ),
         "approach": [
-            "Apply NTILE(4) window function ordered by balance.",
-            "Compute per-quartile min and max using nested window functions.",
+            "Use a CTE to compute NTILE(4) quartile assignments.",
+            "In the outer query, use MIN/MAX window functions partitioned by quartile.",
             "Filter for active accounts, sort by balance.",
         ],
         "common_mistakes": [
-            "Confusing NTILE with PERCENT_RANK (NTILE assigns bucket numbers).",
-            "Not realizing SQLite supports nesting window functions in PARTITION BY.",
+            "Trying to nest NTILE inside PARTITION BY — SQL doesn't allow window functions inside window functions.",
+            "Confusing NTILE with PERCENT_RANK (NTILE assigns bucket numbers, not percentiles).",
         ],
         "concept_tags": ["NTILE", "window function", "MIN", "MAX", "PARTITION BY"],
     },
@@ -4539,15 +4533,15 @@ PROBLEMS: list[dict] = [
         "dataset": "finance",
         "description": (
             "For account_id = 1, compute a running sum of transaction amounts "
-            "ordered by transaction_date. Return transaction_date, "
-            "transaction_type, amount, and running_total using a SUM window "
-            "function with an appropriate frame. Also include the row number. "
+            "ordered by transaction_date. Return the row number, transaction_date, "
+            "type, amount, and running_total using a SUM window function with an "
+            "appropriate frame (ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW). "
             "Sort by transaction_date."
         ),
         "schema_hint": ["transactions"],
         "solution_query": (
             "SELECT ROW_NUMBER() OVER (ORDER BY transaction_date) AS row_num,\n"
-            "       transaction_date, transaction_type, amount,\n"
+            "       transaction_date, type, amount,\n"
             "       SUM(amount) OVER (\n"
             "           ORDER BY transaction_date\n"
             "           ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW\n"
@@ -4771,11 +4765,11 @@ PROBLEMS: list[dict] = [
         "category": "cte",
         "dataset": "finance",
         "description": (
-            "Build a spending breakdown by category for each customer. CTE 1: "
-            "customer_totals — total transaction amount per customer. CTE 2: "
-            "category_totals — total amount per customer per category. Main "
-            "query: join both to compute the percentage of spend in each "
-            "category. Return first_name, last_name, category, category_amount, "
+            "Build a spending breakdown by transaction type for each customer. "
+            "CTE 1: customer_totals — total transaction amount per customer. "
+            "CTE 2: type_totals — total amount per customer per transaction type. "
+            "Main query: join both to compute the percentage of spend in each "
+            "type. Return first_name, last_name, type, type_amount, "
             "total_amount, and spend_pct rounded to 1 decimal. Sort by "
             "last_name, spend_pct descending. Limit to 50."
         ),
@@ -4788,37 +4782,37 @@ PROBLEMS: list[dict] = [
             "    JOIN transactions t ON a.id = t.account_id\n"
             "    GROUP BY a.customer_id\n"
             "),\n"
-            "category_totals AS (\n"
-            "    SELECT a.customer_id, t.category,\n"
-            "           SUM(t.amount) AS category_amount\n"
+            "type_totals AS (\n"
+            "    SELECT a.customer_id, t.type,\n"
+            "           SUM(t.amount) AS type_amount\n"
             "    FROM accounts a\n"
             "    JOIN transactions t ON a.id = t.account_id\n"
-            "    GROUP BY a.customer_id, t.category\n"
+            "    GROUP BY a.customer_id, t.type\n"
             ")\n"
             "SELECT c.first_name, c.last_name,\n"
-            "       ct.category, ct.category_amount,\n"
+            "       tt.type, tt.type_amount,\n"
             "       cust.total_amount,\n"
-            "       ROUND(ct.category_amount * 100.0 / cust.total_amount, 1) AS spend_pct\n"
-            "FROM category_totals ct\n"
-            "JOIN customer_totals cust ON ct.customer_id = cust.customer_id\n"
-            "JOIN customers c ON ct.customer_id = c.id\n"
+            "       ROUND(tt.type_amount * 100.0 / cust.total_amount, 1) AS spend_pct\n"
+            "FROM type_totals tt\n"
+            "JOIN customer_totals cust ON tt.customer_id = cust.customer_id\n"
+            "JOIN customers c ON tt.customer_id = c.id\n"
             "ORDER BY c.last_name, spend_pct DESC\n"
             "LIMIT 50;"
         ),
         "hints": [
-            "CTE 1 computes total spend per customer across all categories.",
-            "CTE 2 computes spend per customer per category.",
-            "Join both CTEs to compute percentage: category / total * 100.",
+            "CTE 1 computes total spend per customer across all transaction types.",
+            "CTE 2 computes spend per customer per transaction type.",
+            "Join both CTEs to compute percentage: type_amount / total * 100.",
             "Join to customers for names.",
         ],
         "explanation": (
-            "1. CTE customer_totals: overall spend per customer.\n"
-            "2. CTE category_totals: spend per customer per category.\n"
-            "3. Main query divides category amount by total to get percentage.\n"
-            "4. This reveals where each customer spends most."
+            "1. CTE customer_totals: overall transaction volume per customer.\n"
+            "2. CTE type_totals: breakdown per customer per transaction type.\n"
+            "3. Main query divides type amount by total to get percentage.\n"
+            "4. This reveals which transaction types dominate each customer's activity."
         ),
         "approach": [
-            "Two CTEs for total and per-category aggregations.",
+            "Two CTEs for total and per-type aggregations.",
             "Join CTEs together and compute percentages.",
             "Join to customers for names, sort and limit.",
         ],
@@ -6162,11 +6156,12 @@ PROBLEMS: list[dict] = [
         "category": "fraud detection",
         "dataset": "finance",
         "description": (
-            "Flag accounts where a single withdrawal exceeds 5 times the account's average "
-            "withdrawal amount. Return account_id, the suspicious transaction id (txn_id), "
-            "the withdrawal amount, and the account's avg_withdrawal (rounded to 2 decimals). "
-            "Use a CTE to compute average withdrawals per account, then join back. "
-            "Order by amount descending."
+            "Flag accounts where a single withdrawal exceeds 1.5 times the "
+            "account's average withdrawal amount. Return account_id, the "
+            "suspicious transaction id (txn_id), the withdrawal amount, and "
+            "the account's avg_withdrawal (rounded to 2 decimals). "
+            "Use a CTE to compute average withdrawals per account, then join "
+            "back. Order by amount descending."
         ),
         "schema_hint": ["transactions"],
         "solution_query": (
@@ -6183,25 +6178,25 @@ PROBLEMS: list[dict] = [
             "FROM transactions t\n"
             "JOIN avg_withdrawals aw ON t.account_id = aw.account_id\n"
             "WHERE t.type = 'withdrawal'\n"
-            "  AND t.amount > 5 * aw.avg_withdrawal\n"
+            "  AND t.amount > 1.5 * aw.avg_withdrawal\n"
             "ORDER BY t.amount DESC;"
         ),
         "hints": [
             "Compute the average withdrawal per account in a CTE.",
             "Join the CTE back to individual withdrawal transactions.",
-            "Compare each transaction's amount to 5 times the average.",
+            "Compare each transaction's amount to 1.5 times the average.",
             "Filter in the WHERE clause after the join.",
         ],
         "explanation": (
             "1. The CTE computes the average withdrawal amount per account.\n"
             "2. The main query joins back to individual withdrawal transactions.\n"
-            "3. WHERE filters for transactions exceeding 5x the average.\n"
+            "3. WHERE filters for transactions exceeding 1.5x the average.\n"
             "4. This is a common fraud detection pattern in banking interviews."
         ),
         "approach": [
             "CTE for average withdrawal per account.",
             "Join CTE to individual transactions.",
-            "Filter for outliers exceeding 5x average.",
+            "Filter for outliers exceeding 1.5x average.",
         ],
         "common_mistakes": [
             "Including non-withdrawal transactions in the average calculation.",

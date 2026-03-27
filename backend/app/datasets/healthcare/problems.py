@@ -2676,38 +2676,42 @@ PROBLEMS: list[dict] = [
         "category": "left_join",
         "dataset": "healthcare",
         "description": (
-            "Scheduling wants to find doctors who have never had a visit. "
-            "Return the doctor's full name and specialty for doctors with "
-            "zero visits. Use a LEFT JOIN approach. Order by last_name."
+            "Scheduling wants to find doctors with the fewest visits. Return the "
+            "doctor's full name (first_name || ' ' || last_name) as doctor_name, "
+            "specialty, and visit_count. Include only doctors with fewer than "
+            "20 visits. Sort by visit_count ascending, then by last_name."
         ),
         "schema_hint": ["doctors", "visits"],
         "solution_query": (
             "SELECT d.first_name || ' ' || d.last_name AS doctor_name,\n"
-            "       d.specialty\n"
+            "       d.specialty,\n"
+            "       COUNT(v.id) AS visit_count\n"
             "FROM doctors d\n"
             "LEFT JOIN visits v ON d.id = v.doctor_id\n"
-            "WHERE v.id IS NULL\n"
-            "ORDER BY d.last_name;"
+            "GROUP BY d.id, d.first_name, d.last_name, d.specialty\n"
+            "HAVING COUNT(v.id) < 20\n"
+            "ORDER BY visit_count, d.last_name;"
         ),
         "hints": [
             "A LEFT JOIN keeps all doctors even if they have no visits.",
-            "When there is no matching visit, the visit columns will be NULL.",
-            "Check for NULL on the visit side to find unmatched doctors.",
-            "WHERE v.id IS NULL identifies doctors with no visits.",
+            "COUNT(v.id) counts only non-NULL visits per doctor.",
+            "Use HAVING to filter groups after aggregation.",
+            "HAVING COUNT(v.id) < 20 keeps doctors with fewer than 20 visits.",
         ],
         "explanation": (
             "1. LEFT JOIN doctors to visits keeps all doctors.\n"
-            "2. WHERE v.id IS NULL filters to doctors with no matching visits.\n"
-            "3. These are the doctors who have never had a visit."
+            "2. GROUP BY doctor to aggregate visit counts.\n"
+            "3. COUNT(v.id) counts actual visits (ignores NULLs).\n"
+            "4. HAVING < 20 filters to underutilized doctors."
         ),
         "approach": [
             "Use LEFT JOIN from doctors to visits.",
-            "Filter for NULL visit IDs.",
-            "Return doctor details.",
+            "Group by doctor and count visits.",
+            "Filter with HAVING for fewer than 20 visits.",
         ],
         "common_mistakes": [
-            "Using INNER JOIN which would exclude the doctors we want.",
-            "Checking the wrong column for NULL.",
+            "Using COUNT(*) instead of COUNT(v.id), which counts NULLs too.",
+            "Using WHERE instead of HAVING for filtering on aggregated values.",
         ],
         "concept_tags": ["LEFT JOIN", "IS NULL", "anti-join pattern"],
     },
@@ -3970,13 +3974,15 @@ PROBLEMS: list[dict] = [
         "description": (
             "The pharmacy wants a compact view of all medications each "
             "patient takes. Use GROUP_CONCAT to list all distinct "
-            "medications per patient, separated by ', '. Return patient "
-            "full name and medications. Order by patient last name."
+            "medications per patient. Return patient full name "
+            "(first_name || ' ' || last_name) as patient_name and "
+            "medications. Order by patient last name. Use a subquery "
+            "to get distinct medications before concatenating."
         ),
         "schema_hint": ["patients", "visits", "prescriptions"],
         "solution_query": (
             "SELECT p.first_name || ' ' || p.last_name AS patient_name,\n"
-            "       GROUP_CONCAT(DISTINCT rx.medication, ', ') AS medications\n"
+            "       GROUP_CONCAT(DISTINCT rx.medication) AS medications\n"
             "FROM patients p\n"
             "JOIN visits v ON p.id = v.patient_id\n"
             "JOIN prescriptions rx ON v.id = rx.visit_id\n"
@@ -3987,12 +3993,12 @@ PROBLEMS: list[dict] = [
             "GROUP_CONCAT concatenates values from multiple rows into one string.",
             "Use DISTINCT inside GROUP_CONCAT to avoid duplicates.",
             "Join patients -> visits -> prescriptions to get medications.",
-            "The second argument to GROUP_CONCAT is the separator.",
+            "GROUP_CONCAT(DISTINCT column) returns comma-separated unique values.",
         ],
         "explanation": (
             "1. Join patients to visits to prescriptions.\n"
             "2. GROUP BY patient.\n"
-            "3. GROUP_CONCAT(DISTINCT medication, ', ') lists all unique medications."
+            "3. GROUP_CONCAT(DISTINCT medication) lists all unique medications."
         ),
         "approach": [
             "Join the three tables.",
@@ -4001,7 +4007,7 @@ PROBLEMS: list[dict] = [
         ],
         "common_mistakes": [
             "Forgetting DISTINCT, listing the same medication multiple times.",
-            "Not specifying the separator (defaults to comma without space).",
+            "Trying to use DISTINCT with a custom separator — SQLite only supports DISTINCT without a separator argument.",
         ],
         "concept_tags": ["GROUP_CONCAT", "JOIN", "GROUP BY", "DISTINCT"],
     },
@@ -4068,21 +4074,19 @@ PROBLEMS: list[dict] = [
         "category": "subquery",
         "dataset": "healthcare",
         "description": (
-            "Find departments that have more doctors than the overall "
-            "average number of doctors per department. Return department "
-            "name and doctor_count. Order by doctor_count descending."
+            "Show how many doctors each department has. Return department "
+            "name, doctor_count, and the department's budget. Only include "
+            "departments with at least 5 doctors. Order by doctor_count "
+            "descending, then by department name."
         ),
         "schema_hint": ["departments", "doctors"],
         "solution_query": (
-            "SELECT dep.name, COUNT(d.id) AS doctor_count\n"
+            "SELECT dep.name, COUNT(d.id) AS doctor_count, dep.budget\n"
             "FROM departments dep\n"
             "JOIN doctors d ON dep.id = d.department_id\n"
-            "GROUP BY dep.id, dep.name\n"
-            "HAVING COUNT(d.id) > (\n"
-            "  SELECT 1.0 * COUNT(*) / COUNT(DISTINCT department_id)\n"
-            "  FROM doctors\n"
-            ")\n"
-            "ORDER BY doctor_count DESC;"
+            "GROUP BY dep.id, dep.name, dep.budget\n"
+            "HAVING COUNT(d.id) >= 5\n"
+            "ORDER BY doctor_count DESC, dep.name;"
         ),
         "hints": [
             "First figure out the average doctors per department.",
@@ -6193,47 +6197,48 @@ PROBLEMS: list[dict] = [
         "dataset": "healthcare",
         "description": (
             "For each patient's visits (ordered by date), calculate the "
-            "number of days since their previous visit. Return the patient's "
-            "full name, visit_date, previous_visit_date, and days_since_last. "
-            "Include only patients who have had at least 2 visits. Sort by "
+            "number of days since their previous visit. Use a CTE to compute "
+            "the LAG window function, then filter out first visits in the "
+            "outer query. Return the patient's full name as patient_name, "
+            "visit_date, previous_visit_date, and days_since_last. Sort by "
             "days_since_last descending to highlight the largest gaps."
         ),
         "schema_hint": ["patients", "visits"],
-        "concept_tags": ["window functions", "LAG", "JULIANDAY", "JOIN"],
+        "concept_tags": ["window functions", "LAG", "JULIANDAY", "CTE", "JOIN"],
         "solution_query": (
-            "SELECT p.first_name || ' ' || p.last_name AS patient_name,\n"
-            "       v.visit_date,\n"
-            "       LAG(v.visit_date) OVER (PARTITION BY v.patient_id ORDER BY v.visit_date) AS previous_visit_date,\n"
-            "       CAST(JULIANDAY(v.visit_date) - JULIANDAY(\n"
-            "           LAG(v.visit_date) OVER (PARTITION BY v.patient_id ORDER BY v.visit_date)\n"
-            "       ) AS INTEGER) AS days_since_last\n"
-            "FROM visits v\n"
-            "JOIN patients p ON v.patient_id = p.id\n"
-            "WHERE LAG(v.visit_date) OVER (PARTITION BY v.patient_id ORDER BY v.visit_date) IS NOT NULL\n"
+            "WITH visit_gaps AS (\n"
+            "    SELECT p.first_name || ' ' || p.last_name AS patient_name,\n"
+            "           v.visit_date,\n"
+            "           LAG(v.visit_date) OVER (PARTITION BY v.patient_id ORDER BY v.visit_date) AS previous_visit_date\n"
+            "    FROM visits v\n"
+            "    JOIN patients p ON v.patient_id = p.id\n"
+            ")\n"
+            "SELECT patient_name, visit_date, previous_visit_date,\n"
+            "       CAST(JULIANDAY(visit_date) - JULIANDAY(previous_visit_date) AS INTEGER) AS days_since_last\n"
+            "FROM visit_gaps\n"
+            "WHERE previous_visit_date IS NOT NULL\n"
             "ORDER BY days_since_last DESC;"
         ),
         "hints": [
             "LAG(visit_date) OVER (PARTITION BY patient_id ORDER BY visit_date) gets the prior visit.",
             "JULIANDAY difference calculates days between dates.",
-            "Filter out rows where LAG is NULL (first visits).",
-            "Wrap in a subquery if the WHERE on window function doesn't work.",
+            "You cannot use window functions in WHERE — use a CTE first.",
+            "Filter for non-NULL previous_visit_date in the outer query.",
         ],
         "explanation": (
-            "1. LAG partitioned by patient_id gets each patient's previous visit date.\n"
-            "2. JULIANDAY difference computes the gap in days.\n"
-            "3. Filtering out NULL LAG values removes first visits.\n"
-            "4. ORDER BY days_since_last DESC highlights the longest gaps.\n"
-            "Note: In SQLite, you may need to wrap the window function in a subquery "
-            "to filter on it."
+            "1. CTE uses LAG partitioned by patient_id to get each patient's previous visit date.\n"
+            "2. Outer query computes JULIANDAY difference for the gap in days.\n"
+            "3. WHERE previous_visit_date IS NOT NULL removes first visits.\n"
+            "4. ORDER BY days_since_last DESC highlights the longest gaps."
         ),
         "approach": [
-            "Use LAG window function partitioned by patient.",
-            "Compute day difference with JULIANDAY.",
-            "Filter out first visits (NULL lag).",
+            "Use a CTE with LAG window function partitioned by patient.",
+            "Compute day difference with JULIANDAY in the outer query.",
+            "Filter out first visits (NULL previous_visit_date).",
             "Sort by gap descending.",
         ],
         "common_mistakes": [
-            "Using LAG directly in WHERE which may not work; need a subquery.",
+            "Using LAG directly in WHERE — window functions cannot appear in WHERE clauses.",
             "Forgetting PARTITION BY and computing LAG across all patients.",
         ],
     },

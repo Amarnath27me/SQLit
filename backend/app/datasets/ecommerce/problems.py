@@ -68,23 +68,23 @@ PROBLEMS: list[dict] = [
         "description": (
             "The regional marketing team wants to send a targeted promotion to "
             "all customers located in California. Retrieve the first name, last name, "
-            "and email of every customer whose state is 'CA'."
+            "and email of every customer whose state is 'California'."
         ),
         "schema_hint": ["customers"],
         "solution_query": (
             "SELECT first_name, last_name, email\n"
             "FROM customers\n"
-            "WHERE state = 'CA';"
+            "WHERE state = 'California';"
         ),
         "hints": [
             "You need to filter rows based on a column value.",
             "The WHERE clause lets you restrict which rows are returned.",
-            "The state column stores two-letter abbreviations.",
-            "WHERE state = 'CA' is the filter you need.",
+            "The state column stores full state names (e.g. 'California').",
+            "WHERE state = 'California' is the filter you need.",
         ],
         "explanation": (
             "1. SELECT the three requested columns from customers.\n"
-            "2. WHERE state = 'CA' filters the result set to only California customers."
+            "2. WHERE state = 'California' filters the result set to only California customers."
         ),
         "approach": [
             "Identify that the customers table holds location info.",
@@ -92,7 +92,7 @@ PROBLEMS: list[dict] = [
             "Return only the columns the marketing team needs.",
         ],
         "common_mistakes": [
-            "Using LIKE '%CA%' which could match unintended values if state names were longer.",
+            "Using state abbreviations like 'CA' instead of the full name 'California'.",
             "Forgetting that string comparisons in SQL are case-sensitive in some configurations.",
         ],
         "concept_tags": ["SELECT", "WHERE", "string comparison"],
@@ -106,26 +106,26 @@ PROBLEMS: list[dict] = [
         "dataset": "ecommerce",
         "description": (
             "The finance team is auditing large transactions. Find all orders "
-            "with a total_amount greater than 500 that have a status of 'completed'. "
-            "Return the order id, order_date, and total_amount."
+            "with a total_amount greater than 500 that have been delivered "
+            "(status = 'delivered'). Return the order id, order_date, and total_amount."
         ),
         "schema_hint": ["orders"],
         "solution_query": (
             "SELECT id, order_date, total_amount\n"
             "FROM orders\n"
             "WHERE total_amount > 500\n"
-            "  AND status = 'completed';"
+            "  AND status = 'delivered';"
         ),
         "hints": [
             "You need two conditions in your WHERE clause.",
             "Combine conditions with AND so both must be true.",
             "One condition is numeric (> 500), the other is a string match.",
-            "WHERE total_amount > 500 AND status = 'completed'",
+            "WHERE total_amount > 500 AND status = 'delivered'",
         ],
         "explanation": (
             "1. SELECT id, order_date, and total_amount from orders.\n"
             "2. WHERE total_amount > 500 keeps only high-value orders.\n"
-            "3. AND status = 'completed' further narrows to completed ones."
+            "3. AND status = 'delivered' further narrows to delivered ones."
         ),
         "approach": [
             "Identify that the orders table has both amount and status.",
@@ -135,7 +135,7 @@ PROBLEMS: list[dict] = [
         "common_mistakes": [
             "Using OR instead of AND, which returns orders matching either condition rather than both.",
             "Putting quotes around 500, treating it as a string instead of a number.",
-            "Forgetting that status values are case-sensitive strings.",
+            "Using a non-existent status like 'completed' instead of checking actual values (pending, shipped, delivered, cancelled, returned).",
         ],
         "concept_tags": ["SELECT", "WHERE", "AND", "comparison operators"],
     },
@@ -1209,10 +1209,9 @@ PROBLEMS: list[dict] = [
         "category": "subqueries",
         "dataset": "ecommerce",
         "description": (
-            "Find customers who have purchased at least one product from every "
-            "category. Return their full name and email. This requires checking "
-            "that the count of distinct categories in a customer's orders equals "
-            "the total number of categories."
+            "Find customers who have purchased products from at least 10 different "
+            "categories. Return their full name (first_name || ' ' || last_name) "
+            "as customer_name and email. Use HAVING to filter after grouping."
         ),
         "schema_hint": ["customers", "orders", "order_items", "products", "categories"],
         "solution_query": (
@@ -1223,30 +1222,29 @@ PROBLEMS: list[dict] = [
             "JOIN order_items oi ON o.id = oi.order_id\n"
             "JOIN products p ON oi.product_id = p.id\n"
             "GROUP BY c.id, c.first_name, c.last_name, c.email\n"
-            "HAVING COUNT(DISTINCT p.category_id) = (SELECT COUNT(*) FROM categories);"
+            "HAVING COUNT(DISTINCT p.category_id) >= 10;"
         ),
         "hints": [
             "You need to count how many distinct categories each customer has ordered from.",
-            "Compare that count to the total number of categories in the system.",
             "Join customers -> orders -> order_items -> products to reach category_id.",
-            "HAVING COUNT(DISTINCT p.category_id) = (SELECT COUNT(*) FROM categories)",
+            "Use HAVING COUNT(DISTINCT ...) >= 10 to filter after grouping.",
+            "HAVING COUNT(DISTINCT p.category_id) >= 10",
         ],
         "explanation": (
             "1. Join the chain: customers -> orders -> order_items -> products.\n"
             "2. GROUP BY customer to aggregate.\n"
             "3. COUNT(DISTINCT p.category_id) counts unique categories per customer.\n"
-            "4. The subquery (SELECT COUNT(*) FROM categories) gives the total category count.\n"
-            "5. HAVING ensures only customers covering all categories are returned."
+            "4. HAVING >= 10 filters to only customers with broad purchasing habits."
         ),
         "approach": [
             "Trace the join path from customers to category_id through orders and order_items.",
             "Count distinct categories per customer.",
-            "Compare against the total category count using a subquery.",
+            "Use HAVING to filter customers with at least 10 categories.",
         ],
         "common_mistakes": [
             "Using COUNT(p.category_id) without DISTINCT, which counts duplicate categories.",
-            "Hardcoding the number of categories instead of using a subquery.",
             "Forgetting one of the intermediate joins in the chain.",
+            "Using WHERE instead of HAVING for filtering on aggregated values.",
         ],
         "concept_tags": ["subquery", "COUNT DISTINCT", "HAVING", "multi-table join", "relational division"],
     },
@@ -1937,34 +1935,41 @@ PROBLEMS: list[dict] = [
         "category": "joins",
         "dataset": "ecommerce",
         "description": (
-            "The inventory team wants to identify dead stock. Find all products "
-            "that have never appeared in any order. Return the product name and price."
+            "The inventory team wants to identify slow-moving products. Find all "
+            "products that have been ordered fewer than 3 times. Return the product "
+            "name, price, and order_count. Sort by order_count ascending, then by name."
         ),
         "schema_hint": ["products", "order_items"],
         "solution_query": (
-            "SELECT p.name, p.price\n"
+            "SELECT p.name, p.price,\n"
+            "       COUNT(oi.id) AS order_count\n"
             "FROM products p\n"
             "LEFT JOIN order_items oi ON p.id = oi.product_id\n"
-            "WHERE oi.id IS NULL;"
+            "GROUP BY p.id, p.name, p.price\n"
+            "HAVING COUNT(oi.id) < 3\n"
+            "ORDER BY order_count, p.name;"
         ),
         "hints": [
-            "You need to find products with no matching order_items rows.",
             "A LEFT JOIN keeps all products even if they have no order items.",
-            "After a LEFT JOIN, unmatched rows have NULL in the joined table's columns.",
-            "Filter for rows where the joined table's column IS NULL.",
+            "COUNT(oi.id) counts only non-NULL matches, so products with 0 orders get a count of 0.",
+            "Use HAVING to filter groups after aggregation.",
+            "HAVING COUNT(oi.id) < 3 keeps products with fewer than 3 orders.",
         ],
         "explanation": (
             "1. LEFT JOIN order_items onto products to keep all products.\n"
-            "2. Products with no order items will have NULL for oi.id.\n"
-            "3. WHERE oi.id IS NULL filters to only those unmatched products."
+            "2. GROUP BY product to aggregate order counts.\n"
+            "3. COUNT(oi.id) counts how many times each product was ordered.\n"
+            "4. HAVING < 3 filters to slow-moving products."
         ),
         "approach": [
             "Use a LEFT JOIN from products to order_items.",
-            "Filter for NULLs in the order_items side to find products with no orders.",
+            "Group by product and count order items.",
+            "Filter with HAVING for products ordered fewer than 3 times.",
         ],
         "common_mistakes": [
-            "Using INNER JOIN, which would exclude the very products you want to find.",
-            "Using WHERE oi.id = NULL instead of IS NULL.",
+            "Using INNER JOIN, which would exclude products with zero orders.",
+            "Using WHERE instead of HAVING for filtering on aggregated values.",
+            "Using COUNT(*) instead of COUNT(oi.id), which counts NULLs too.",
         ],
         "concept_tags": ["LEFT JOIN", "IS NULL", "dead stock"],
     },
@@ -2834,38 +2839,37 @@ PROBLEMS: list[dict] = [
         "category": "subqueries",
         "dataset": "ecommerce",
         "description": (
-            "Some orders may have multiple payment attempts. Find orders that "
-            "have more than one payment record. Return the order_id, number of "
-            "payments, count of completed payments, and total amount of "
-            "completed payments. Sort by number of payments descending."
+            "The finance team wants a breakdown of payment statuses per payment method. "
+            "For each payment method, return the method name, total number of payments, "
+            "count of completed payments, and total amount of completed payments "
+            "(rounded to 2 decimals). Sort by total payments descending."
         ),
         "schema_hint": ["payments"],
         "solution_query": (
-            "SELECT order_id,\n"
+            "SELECT method,\n"
             "       COUNT(*) AS total_payments,\n"
             "       SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed_payments,\n"
             "       ROUND(SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END), 2) AS completed_amount\n"
             "FROM payments\n"
-            "GROUP BY order_id\n"
-            "HAVING COUNT(*) > 1\n"
+            "GROUP BY method\n"
             "ORDER BY total_payments DESC;"
         ),
         "hints": [
-            "Group payments by order_id and count them.",
-            "HAVING filters groups after aggregation.",
+            "Group payments by method to get per-method metrics.",
             "Use CASE WHEN inside SUM to conditionally count or sum.",
             "CASE WHEN status = 'completed' THEN 1 ELSE 0 END counts completed ones.",
+            "ROUND(..., 2) ensures the amount has exactly 2 decimal places.",
         ],
         "explanation": (
-            "1. GROUP BY order_id to aggregate per order.\n"
-            "2. COUNT(*) gives total payment attempts.\n"
+            "1. GROUP BY method to aggregate per payment method.\n"
+            "2. COUNT(*) gives total payments per method.\n"
             "3. SUM(CASE WHEN ...) selectively counts/sums completed payments.\n"
-            "4. HAVING COUNT(*) > 1 filters to multi-payment orders."
+            "4. ORDER BY total_payments DESC shows the most-used methods first."
         ),
         "approach": [
-            "Group by order and count all payments.",
+            "Group by payment method.",
             "Use conditional aggregation (CASE inside SUM) for completed-only metrics.",
-            "Filter with HAVING for multiple payments.",
+            "Sort by total payments.",
         ],
         "common_mistakes": [
             "Using WHERE status = 'completed' which would exclude failed payment rows from the total count.",
@@ -3021,9 +3025,9 @@ PROBLEMS: list[dict] = [
         "category": "joins",
         "dataset": "ecommerce",
         "description": (
-            "Find orders where shipping took longer than 5 days (from order_date "
+            "Find orders where shipping took longer than 3 days (from order_date "
             "to shipping_date). Return the order id, order_date, shipping_date, "
-            "and the number of days delay. Sort by delay descending."
+            "and the number of days to ship as days_to_ship. Sort by delay descending."
         ),
         "schema_hint": ["orders", "shipping"],
         "solution_query": (
@@ -3031,19 +3035,19 @@ PROBLEMS: list[dict] = [
             "       CAST(julianday(s.shipping_date) - julianday(o.order_date) AS INTEGER) AS days_to_ship\n"
             "FROM orders o\n"
             "JOIN shipping s ON o.id = s.order_id\n"
-            "WHERE julianday(s.shipping_date) - julianday(o.order_date) > 5\n"
+            "WHERE julianday(s.shipping_date) - julianday(o.order_date) > 3\n"
             "ORDER BY days_to_ship DESC;"
         ),
         "hints": [
             "Join orders to shipping on order_id.",
             "Use julianday() to compute date differences in SQLite.",
-            "Filter for differences greater than 5 days.",
+            "Filter for differences greater than 3 days.",
             "CAST to INTEGER removes the decimal portion of day differences.",
         ],
         "explanation": (
             "1. JOIN orders to shipping on order_id.\n"
             "2. julianday difference computes days between order and ship date.\n"
-            "3. WHERE filters for delays exceeding 5 days."
+            "3. WHERE filters for delays exceeding 3 days."
         ),
         "approach": [
             "Join the two tables on order_id.",
@@ -3113,10 +3117,10 @@ PROBLEMS: list[dict] = [
         "category": "subqueries",
         "dataset": "ecommerce",
         "description": (
-            "Find customers who have purchased products from every single "
-            "product category. Return the customer's first name, last name, "
-            "and the number of distinct categories they bought from. Sort by "
-            "last name."
+            "Find customers who have purchased products from more than 12 "
+            "different categories. Return the customer's first name, last name, "
+            "and the number of distinct categories they bought from as categories_bought. "
+            "Sort by categories_bought descending, then by last name."
         ),
         "schema_hint": ["customers", "orders", "order_items", "products", "categories"],
         "solution_query": (
@@ -3127,30 +3131,30 @@ PROBLEMS: list[dict] = [
             "JOIN order_items oi ON o.id = oi.order_id\n"
             "JOIN products p ON oi.product_id = p.id\n"
             "GROUP BY c.id, c.first_name, c.last_name\n"
-            "HAVING COUNT(DISTINCT p.category_id) = (SELECT COUNT(*) FROM categories)\n"
-            "ORDER BY c.last_name;"
+            "HAVING COUNT(DISTINCT p.category_id) > 12\n"
+            "ORDER BY categories_bought DESC, c.last_name;"
         ),
         "hints": [
             "You need to count how many distinct categories each customer has bought from.",
-            "Compare that count to the total number of categories in the categories table.",
             "Chain joins: customers -> orders -> order_items -> products to reach category_id.",
-            "HAVING with a subquery can compare the per-customer count to the total category count.",
+            "Use HAVING to filter after GROUP BY for customers with > 12 categories.",
+            "HAVING COUNT(DISTINCT p.category_id) > 12",
         ],
         "explanation": (
             "1. Join from customers through orders and order_items to products.\n"
             "2. COUNT(DISTINCT p.category_id) per customer gives categories covered.\n"
-            "3. HAVING compares to (SELECT COUNT(*) FROM categories) — the total.\n"
-            "4. Only customers matching all categories pass the filter."
+            "3. HAVING > 12 filters to customers with very broad purchasing habits.\n"
+            "4. ORDER BY puts the most diverse shoppers first."
         ),
         "approach": [
             "Chain joins to connect customers to product categories.",
             "Count distinct categories per customer.",
-            "Use HAVING with a subquery to match the total category count.",
+            "Use HAVING to filter for more than 12 categories.",
         ],
         "common_mistakes": [
-            "Hardcoding the category count instead of using a subquery.",
-            "Using COUNT(category_id) without DISTINCT, which overcounts.",
+            "Using COUNT(category_id) without DISTINCT, which overcounts due to multiple orders.",
             "Forgetting a join in the chain and getting incorrect results.",
+            "Using WHERE instead of HAVING for filtering on aggregated values.",
         ],
         "concept_tags": ["HAVING", "COUNT DISTINCT", "subquery", "relational division", "multi-table join"],
     },
@@ -3348,35 +3352,36 @@ PROBLEMS: list[dict] = [
         "category": "where",
         "dataset": "ecommerce",
         "description": (
-            "The warehouse manager needs to know which products are completely sold out. "
-            "List the product name and category_id for every product where stock_quantity "
-            "is zero, sorted by name."
+            "The warehouse manager needs to know which products are running low. "
+            "List the product name, category_id, and stock_quantity for every product "
+            "where stock_quantity is less than 10, sorted by stock_quantity ascending, "
+            "then by name."
         ),
         "schema_hint": ["products"],
         "solution_query": (
-            "SELECT name, category_id\n"
+            "SELECT name, category_id, stock_quantity\n"
             "FROM products\n"
-            "WHERE stock_quantity = 0\n"
-            "ORDER BY name;"
+            "WHERE stock_quantity < 10\n"
+            "ORDER BY stock_quantity, name;"
         ),
         "hints": [
             "Only the products table is needed.",
-            "Filter where stock_quantity equals zero.",
-            "Remember to sort alphabetically by name.",
-            "SELECT name, category_id FROM products WHERE stock_quantity = 0 ORDER BY name;",
+            "Filter where stock_quantity is below 10.",
+            "Sort by stock_quantity first, then alphabetically by name.",
+            "SELECT name, category_id, stock_quantity FROM products WHERE stock_quantity < 10 ORDER BY stock_quantity, name;",
         ],
         "explanation": (
-            "1. SELECT name and category_id from products.\n"
-            "2. WHERE stock_quantity = 0 isolates out-of-stock items.\n"
-            "3. ORDER BY name for alphabetical output."
+            "1. SELECT name, category_id, and stock_quantity from products.\n"
+            "2. WHERE stock_quantity < 10 isolates low-stock items.\n"
+            "3. ORDER BY stock_quantity, name sorts by urgency then alphabetically."
         ),
         "approach": [
             "Query products.",
-            "Filter for zero stock.",
-            "Sort by name.",
+            "Filter for low stock (below 10).",
+            "Sort by stock quantity then name.",
         ],
         "common_mistakes": [
-            "Using stock_quantity IS NULL instead of = 0.",
+            "Using stock_quantity IS NULL instead of < 10.",
             "Selecting all columns instead of just name and category_id.",
         ],
         "concept_tags": ["SELECT", "WHERE", "equality filter"],
