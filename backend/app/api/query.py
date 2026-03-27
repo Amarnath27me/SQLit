@@ -33,6 +33,7 @@ class DiffData(BaseModel):
     total_expected_rows: int = 0
     mismatched_rows: list[int] = []
     mismatched_columns: list[str] = []
+    column_name_mismatch: bool = False
 
 
 class QueryResponse(BaseModel):
@@ -136,8 +137,8 @@ async def execute_query(req: QueryRequest, request: Request):
             rows=expected_result["rows"],
             row_count=expected_result["row_count"],
             execution_time_ms=expected_result["execution_time_ms"],
-        ) if not is_correct else None,
-        diff=DiffData(**diff) if not is_correct else None,
+        ) if not is_correct or diff.get("column_name_mismatch") else None,
+        diff=DiffData(**diff) if not is_correct or diff.get("column_name_mismatch") else None,
         error=None,
         xp_earned=xp,
     )

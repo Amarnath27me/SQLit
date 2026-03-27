@@ -18,6 +18,7 @@ interface ResultDiff {
   totalExpectedRows: number;
   mismatchedRows: number[];
   mismatchedColumns: string[];
+  columnNameMismatch?: boolean;
 }
 
 interface OutputPanelProps {
@@ -281,6 +282,24 @@ export function OutputPanel({
                     </div>
                   </div>
                 </div>
+
+                {/* Column name hint */}
+                {diff?.columnNameMismatch && expectedResult && (
+                  <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3">
+                    <p className="text-xs font-medium text-amber-500">
+                      Tip: Your column names differ from the expected output. In interviews, use aliases like{" "}
+                      {expectedResult.columns.map((c, i) => (
+                        <span key={c}>
+                          <code className="rounded bg-amber-500/10 px-1 py-0.5 font-mono text-[10px]">
+                            AS {c}
+                          </code>
+                          {i < expectedResult.columns.length - 1 ? ", " : ""}
+                        </span>
+                      ))}
+                      {" "}for clarity.
+                    </p>
+                  </div>
+                )}
 
                 {/* Share card */}
                 <ShareCard

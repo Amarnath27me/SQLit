@@ -86,7 +86,7 @@ export default function ProblemPage() {
         status: "accepted" | "wrong_answer" | "error";
         user_result: { columns: string[]; rows: unknown[][]; row_count: number; execution_time_ms: number } | null;
         expected_result: { columns: string[]; rows: unknown[][]; row_count: number; execution_time_ms: number } | null;
-        diff: { matching_rows: number; total_expected_rows: number; mismatched_rows: number[]; mismatched_columns: string[] } | null;
+        diff: { matching_rows: number; total_expected_rows: number; mismatched_rows: number[]; mismatched_columns: string[]; column_name_mismatch?: boolean } | null;
         error: string | null;
         xp_earned: number;
       }>("/api/query/execute", {
@@ -123,6 +123,7 @@ export default function ProblemPage() {
               totalExpectedRows: response.diff.total_expected_rows,
               mismatchedRows: response.diff.mismatched_rows,
               mismatchedColumns: response.diff.mismatched_columns,
+              columnNameMismatch: response.diff.column_name_mismatch,
             }
           : null,
         error: response.error,

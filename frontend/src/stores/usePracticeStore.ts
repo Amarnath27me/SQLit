@@ -14,6 +14,7 @@ interface ResultDiff {
   totalExpectedRows: number;
   mismatchedRows: number[];
   mismatchedColumns: string[];
+  columnNameMismatch?: boolean;
 }
 
 interface PracticeState {

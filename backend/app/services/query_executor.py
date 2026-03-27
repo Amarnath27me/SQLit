@@ -457,10 +457,15 @@ def compare_results(
                 if user_norm[i][j] != expected_norm[i][j] and j < len(expected_columns):
                     mismatched_columns.add(expected_columns[j])
 
+    # Column count must match, but column names (aliases) are not required
+    col_count_match = len(user_cols_norm) == len(expected_cols_norm)
+    col_names_match = user_cols_norm == expected_cols_norm
+
     return {
         "matching_rows": max_len - len(mismatched_rows),
         "total_expected_rows": len(expected_norm),
         "mismatched_rows": mismatched_rows,
         "mismatched_columns": list(mismatched_columns),
-        "is_correct": len(mismatched_rows) == 0 and user_cols_norm == expected_cols_norm,
+        "column_name_mismatch": not col_names_match and col_count_match,
+        "is_correct": len(mismatched_rows) == 0 and col_count_match,
     }
