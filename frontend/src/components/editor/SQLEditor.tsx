@@ -118,7 +118,7 @@ export function SQLEditor({
           </svg>
           Run
           <kbd className="ml-1 rounded bg-white/20 px-1 py-0.5 text-[10px]">
-            ⌘↵
+            {typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent) ? "⌘↵" : "Ctrl+↵"}
           </kbd>
         </button>
       </div>
