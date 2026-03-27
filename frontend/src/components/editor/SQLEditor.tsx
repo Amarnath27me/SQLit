@@ -1,8 +1,10 @@
 "use client";
 
-import { useRef, useCallback } from "react";
-import Editor, { OnMount, BeforeMount } from "@monaco-editor/react";
-import type { editor, languages, Position, IRange } from "monaco-editor";
+import { useRef, useCallback, useState, useEffect } from "react";
+import Editor, { OnMount, BeforeMount, loader } from "@monaco-editor/react";
+import type { editor as editorNs, languages, Position, IRange } from "monaco-editor";
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type MonacoInstance = typeof import("monaco-editor");
 
 interface SQLEditorProps {
   value: string;
@@ -21,9 +23,18 @@ export function SQLEditor({
   readOnly = false,
   tables = [],
 }: SQLEditorProps) {
-  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const editorRef = useRef<editorNs.IStandaloneCodeEditor | null>(null);
   const onRunRef = useRef(onRun);
   onRunRef.current = onRun;
+  const [monacoReady, setMonacoReady] = useState(false);
+
+  // Load Monaco from local bundle instead of CDN (fixes Brave, ad-blockers)
+  useEffect(() => {
+    import("monaco-editor").then((monacoModule: MonacoInstance) => {
+      loader.config({ monaco: monacoModule });
+      setMonacoReady(true);
+    });
+  }, []);
 
   const handleBeforeMount: BeforeMount = useCallback((monaco) => {
     monaco.editor.defineTheme("sqlit-dark", {
@@ -64,7 +75,7 @@ export function SQLEditor({
       // Register table/column completions
       if (tables.length > 0) {
         monaco.languages.registerCompletionItemProvider("sql", {
-          provideCompletionItems: (model: editor.ITextModel, position: Position): languages.ProviderResult<languages.CompletionList> => {
+          provideCompletionItems: (model: editorNs.ITextModel, position: Position): languages.ProviderResult<languages.CompletionList> => {
             const word = model.getWordUntilPosition(position);
             const range: IRange = {
               startLineNumber: position.lineNumber,
@@ -142,6 +153,11 @@ export function SQLEditor({
 
       {/* Editor */}
       <div className="flex-1 min-h-0">
+        {!monacoReady ? (
+          <div className="flex h-full items-center justify-center bg-[var(--color-background)]">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--color-accent)] border-t-transparent" />
+          </div>
+        ) : (
         <Editor
           defaultLanguage="sql"
           value={value}
@@ -176,6 +192,7 @@ export function SQLEditor({
             cursorSmoothCaretAnimation: "on",
           }}
         />
+        )}
       </div>
 
     </div>
