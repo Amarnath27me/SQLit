@@ -31,9 +31,20 @@ const EXAMPLES = [
     query: "WITH top_customers AS (\n  SELECT customer_id, SUM(total_amount) AS total\n  FROM orders\n  GROUP BY customer_id\n  ORDER BY total DESC\n  LIMIT 10\n)\nSELECT c.first_name, c.last_name, tc.total\nFROM top_customers tc\nJOIN customers c ON tc.customer_id = c.id;",
     dataset: "ecommerce",
   },
+  {
+    label: "DISTINCT + ORDER",
+    query: "SELECT DISTINCT category_id, COUNT(*) AS product_count\nFROM products\nGROUP BY category_id\nORDER BY product_count DESC\nLIMIT 5;",
+    dataset: "ecommerce",
+  },
 ];
 
 /* ── Types ── */
+interface IntermediateResult {
+  columns: string[];
+  rows: unknown[][];
+  totalRows: number;
+}
+
 interface ExecutionStep {
   order: number;
   clause: string;
@@ -42,7 +53,9 @@ interface ExecutionStep {
   description: string;
   detail: string;
   rowCount: number | null;
+  intermediateData: IntermediateResult | null;
   partialQuery: string | null;
+  previewQuery: string | null;
 }
 
 /* ── SQL Execution Order ── */
@@ -51,8 +64,8 @@ const EXECUTION_ORDER = [
 ];
 
 /* ── Parse query into execution steps ── */
-function parseQuerySteps(sql: string): Omit<ExecutionStep, "rowCount">[] {
-  const steps: Omit<ExecutionStep, "rowCount">[] = [];
+function parseQuerySteps(sql: string): Omit<ExecutionStep, "rowCount" | "intermediateData">[] {
+  const steps: Omit<ExecutionStep, "rowCount" | "intermediateData">[] = [];
   const trimmed = sql.trim().replace(/;+\s*$/, "");
 
   // CTE
@@ -65,8 +78,9 @@ function parseQuerySteps(sql: string): Omit<ExecutionStep, "rowCount">[] {
       keyword: "WITH",
       sqlFragment: `WITH ${cteMatch[1]} AS (...)`,
       description: `Define temporary result set "${cteMatch[1]}"`,
-      detail: "CTEs create named temporary results that exist only for this query. The database materializes this result first, then uses it in the main query. Think of it as a temporary table.",
+      detail: "CTEs create named temporary results that exist only for this query. The database materializes this result first, then uses it in the main query.",
       partialQuery: cteBody ? `${cteBody.fullCte}\nSELECT COUNT(*) AS rows FROM ${cteMatch[1]}` : null,
+      previewQuery: cteBody ? `${cteBody.fullCte}\nSELECT * FROM ${cteMatch[1]} LIMIT 5` : null,
     });
   }
 
@@ -81,27 +95,30 @@ function parseQuerySteps(sql: string): Omit<ExecutionStep, "rowCount">[] {
       keyword: "FROM",
       sqlFragment: `FROM ${table}${alias}`,
       description: `Load all rows from "${table}"`,
-      detail: `The database starts here — not at SELECT. It loads the entire "${table}" table into memory (or streams it). Every row is initially included. This is step 1 of every query.`,
+      detail: `The database starts here — not at SELECT. It loads the entire "${table}" table into memory. Every row is initially included.`,
       partialQuery: `SELECT COUNT(*) AS rows FROM ${table}`,
+      previewQuery: `SELECT * FROM ${table} LIMIT 5`,
     });
   }
 
   // JOINs
   const joinRegex = /((?:INNER|LEFT|RIGHT|FULL|CROSS)\s+)?JOIN\s+([\w.]+)\s+(?:(\w+)\s+)?ON\s+(.+?)(?=\s+(?:WHERE|JOIN|INNER|LEFT|RIGHT|FULL|CROSS|GROUP|ORDER|HAVING|LIMIT|$))/gi;
   let jm;
-  const joinSteps: Omit<ExecutionStep, "rowCount">[] = [];
+  const joinSteps: Omit<ExecutionStep, "rowCount" | "intermediateData">[] = [];
   while ((jm = joinRegex.exec(trimmed)) !== null) {
     const jType = (jm[1] || "INNER").trim();
     const jTable = jm[2];
     const condition = jm[4].trim();
+    const endPos = jm.index + jm[0].length;
     joinSteps.push({
       order: 2,
       clause: "JOIN",
       keyword: `${jType} JOIN`,
       sqlFragment: `${jType} JOIN ${jTable} ON ${condition}`,
       description: `Combine with "${jTable}" on ${truncate(condition, 60)}`,
-      detail: `${jType} JOIN matches every row from the current result with rows in "${jTable}" where ${condition}. ${jType === "LEFT" ? "All left-side rows are kept even without matches (NULLs fill in)." : jType === "INNER" ? "Only matching rows from both sides survive." : `${jType} join semantics apply.`} This can multiply or reduce rows.`,
-      partialQuery: buildPartialUpTo(trimmed, "JOIN", jm.index + jm[0].length),
+      detail: `${jType} JOIN matches every row from the current result with rows in "${jTable}" where ${condition}. ${jType === "LEFT" ? "All left-side rows kept even without matches." : jType === "INNER" ? "Only matching rows from both sides survive." : `${jType} join semantics apply.`} This can multiply or reduce rows.`,
+      partialQuery: buildPartialUpTo(trimmed, "JOIN", endPos),
+      previewQuery: buildPreviewUpTo(trimmed, "JOIN", endPos),
     });
   }
   steps.push(...joinSteps);
@@ -115,8 +132,9 @@ function parseQuerySteps(sql: string): Omit<ExecutionStep, "rowCount">[] {
       keyword: "WHERE",
       sqlFragment: `WHERE ${truncate(whereMatch[1].trim(), 80)}`,
       description: `Filter rows: ${truncate(whereMatch[1].trim(), 60)}`,
-      detail: "WHERE filters individual rows BEFORE any grouping. Only rows passing all conditions move to the next step. This is why you can't use aggregate functions (SUM, COUNT) in WHERE — groups don't exist yet.",
+      detail: "WHERE filters individual rows BEFORE any grouping. Only rows passing all conditions move forward. You can't use aggregate functions here — groups don't exist yet.",
       partialQuery: buildPartialUpTo(trimmed, "WHERE"),
+      previewQuery: buildPreviewUpTo(trimmed, "WHERE"),
     });
   }
 
@@ -124,28 +142,35 @@ function parseQuerySteps(sql: string): Omit<ExecutionStep, "rowCount">[] {
   const groupMatch = trimmed.match(/GROUP\s+BY\s+(.+?)(?=\s+(?:HAVING|ORDER\s+BY|LIMIT|$))/i);
   if (groupMatch) {
     const cols = groupMatch[1].trim();
+    // For GROUP BY, we need to show the grouped result with the SELECT columns
+    const selectMatch2 = trimmed.match(/SELECT\s+(.*?)(?=\s+FROM)/i);
+    const selectCols = selectMatch2 ? selectMatch2[1].trim() : cols;
     steps.push({
       order: 4,
       clause: "GROUP BY",
       keyword: "GROUP BY",
       sqlFragment: `GROUP BY ${cols}`,
       description: `Group rows by: ${truncate(cols, 60)}`,
-      detail: "GROUP BY collapses many rows into groups. 1000 rows might become 50 groups. After this step, you can only reference grouped columns or aggregate functions (SUM, COUNT, AVG). Each group becomes one row in the output.",
+      detail: "GROUP BY collapses many rows into groups. 1000 rows might become 50 groups. After this, you can only reference grouped columns or aggregate functions.",
       partialQuery: buildPartialUpTo(trimmed, "GROUP BY"),
+      previewQuery: buildGroupPreview(trimmed, selectCols),
     });
   }
 
   // HAVING
   const havingMatch = trimmed.match(/HAVING\s+(.+?)(?=\s+(?:ORDER\s+BY|LIMIT|$))/i);
   if (havingMatch) {
+    const selectMatch2 = trimmed.match(/SELECT\s+(.*?)(?=\s+FROM)/i);
+    const selectCols = selectMatch2 ? selectMatch2[1].trim() : "*";
     steps.push({
       order: 5,
       clause: "HAVING",
       keyword: "HAVING",
       sqlFragment: `HAVING ${truncate(havingMatch[1].trim(), 80)}`,
       description: `Filter groups: ${truncate(havingMatch[1].trim(), 60)}`,
-      detail: "HAVING filters AFTER grouping — it's like WHERE but for groups. This is where you filter by aggregate values (e.g., HAVING COUNT(*) > 5). Groups that don't meet the condition are dropped.",
+      detail: "HAVING filters AFTER grouping — it's WHERE for groups. Use it for conditions on aggregate values like COUNT(*) > 5.",
       partialQuery: buildPartialUpTo(trimmed, "HAVING"),
+      previewQuery: buildHavingPreview(trimmed, selectCols),
     });
   }
 
@@ -161,8 +186,9 @@ function parseQuerySteps(sql: string): Omit<ExecutionStep, "rowCount">[] {
       keyword: "SELECT",
       sqlFragment: `SELECT ${truncate(cols, 80)}`,
       description: `Choose columns: ${truncate(cols, 60)}`,
-      detail: `SELECT determines the output columns. ${hasAgg ? "Aggregate functions (SUM, COUNT, etc.) are calculated here." : ""} ${hasAlias ? "Column aliases (AS ...) are created here — they can't be used in WHERE or GROUP BY because those ran earlier." : ""} This runs AFTER filtering and grouping, not before.`,
+      detail: `SELECT determines the output columns. ${hasAgg ? "Aggregate functions are calculated here. " : ""}${hasAlias ? "Column aliases (AS ...) are created here — they can't be used in WHERE or GROUP BY. " : ""}This runs AFTER filtering and grouping.`,
       partialQuery: null,
+      previewQuery: null,
     });
   }
 
@@ -174,8 +200,9 @@ function parseQuerySteps(sql: string): Omit<ExecutionStep, "rowCount">[] {
       keyword: "WINDOW",
       sqlFragment: "OVER(...)",
       description: "Evaluate window functions across partitions",
-      detail: "Window functions run AFTER SELECT on the result rows. Unlike GROUP BY, they don't collapse rows — each row gets its own computed value based on its partition/window. RANK(), ROW_NUMBER(), LAG(), LEAD() all run here.",
+      detail: "Window functions run AFTER SELECT. Unlike GROUP BY, they don't collapse rows — each row gets its own computed value. RANK(), ROW_NUMBER(), LAG(), LEAD() all run here.",
       partialQuery: null,
+      previewQuery: null,
     });
   }
 
@@ -187,8 +214,9 @@ function parseQuerySteps(sql: string): Omit<ExecutionStep, "rowCount">[] {
       keyword: "DISTINCT",
       sqlFragment: "DISTINCT",
       description: "Remove duplicate rows from result",
-      detail: "DISTINCT eliminates duplicate rows AFTER SELECT has computed all columns. Two rows are duplicates only if every column value matches. This can significantly reduce row count.",
+      detail: "DISTINCT eliminates duplicate rows AFTER SELECT. Two rows are duplicates only if every column value matches.",
       partialQuery: null,
+      previewQuery: null,
     });
   }
 
@@ -201,8 +229,9 @@ function parseQuerySteps(sql: string): Omit<ExecutionStep, "rowCount">[] {
       keyword: "ORDER BY",
       sqlFragment: `ORDER BY ${orderMatch[1].trim()}`,
       description: `Sort by: ${truncate(orderMatch[1].trim(), 60)}`,
-      detail: "ORDER BY sorts the final result. It runs near-last — after all filtering, grouping, and column selection. ASC is default. Sorting is expensive on large datasets — it requires comparing every row.",
+      detail: "ORDER BY sorts the final result. It runs near-last. ASC is default. Sorting is expensive on large datasets.",
       partialQuery: null,
+      previewQuery: null,
     });
   }
 
@@ -215,12 +244,12 @@ function parseQuerySteps(sql: string): Omit<ExecutionStep, "rowCount">[] {
       keyword: "LIMIT",
       sqlFragment: `LIMIT ${limitMatch[1]}`,
       description: `Return only ${limitMatch[1]} rows`,
-      detail: `LIMIT is the very last operation. After everything else is done, LIMIT chops the result to ${limitMatch[1]} rows. Combined with ORDER BY, it gives you "top N" results.`,
+      detail: `LIMIT is the very last operation. After everything else, it chops the result to ${limitMatch[1]} rows.`,
       partialQuery: null,
+      previewQuery: null,
     });
   }
 
-  // Sort by execution order
   steps.sort((a, b) => a.order - b.order);
   return steps;
 }
@@ -239,56 +268,89 @@ function extractCTEBody(sql: string): { fullCte: string } | null {
   return match ? { fullCte: match[1] } : null;
 }
 
-function buildPartialUpTo(sql: string, clause: string, endPos?: number): string | null {
-  const trimmed = sql.trim().replace(/;+\s*$/, "");
-
-  // Extract FROM clause table
-  const fromMatch = trimmed.match(/FROM\s+([\w.]+)(?:\s+(\w+))?/i);
-  if (!fromMatch) return null;
-
-  // Build partial query step by step
+function getFromAndJoins(sql: string, clause: string, endPos?: number): string {
+  const fromMatch = sql.match(/FROM\s+([\w.]+)(?:\s+(\w+))?/i);
+  if (!fromMatch) return "";
   let fromPart = `FROM ${fromMatch[1]}`;
   if (fromMatch[2] && !isKeyword(fromMatch[2])) fromPart += ` ${fromMatch[2]}`;
 
-  // Add JOINs if clause is JOIN or later
   const joinOrder = EXECUTION_ORDER.indexOf("JOIN");
   const clauseOrder = EXECUTION_ORDER.indexOf(clause);
-
   let joins = "";
   if (clauseOrder >= joinOrder) {
     const joinRegex = /((?:INNER|LEFT|RIGHT|FULL|CROSS)\s+)?JOIN\s+[\w.]+\s+(?:\w+\s+)?ON\s+.+?(?=\s+(?:WHERE|JOIN|INNER|LEFT|RIGHT|FULL|CROSS|GROUP|ORDER|HAVING|LIMIT|$))/gi;
-    let jm;
-    while ((jm = joinRegex.exec(trimmed)) !== null) {
-      if (clause === "JOIN" && endPos && jm.index + jm[0].length > endPos) break;
-      joins += "\n" + jm[0];
+    let jm2;
+    while ((jm2 = joinRegex.exec(sql)) !== null) {
+      if (clause === "JOIN" && endPos && jm2.index + jm2[0].length > endPos) break;
+      joins += "\n" + jm2[0];
     }
   }
-
-  // Add WHERE if applicable
-  let where = "";
-  if (clauseOrder >= EXECUTION_ORDER.indexOf("WHERE")) {
-    const wm = trimmed.match(/WHERE\s+(.+?)(?=\s+(?:GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|$))/i);
-    if (wm) where = `\nWHERE ${wm[1].trim()}`;
-  }
-
-  // Add GROUP BY if applicable
-  let groupBy = "";
-  if (clauseOrder >= EXECUTION_ORDER.indexOf("GROUP BY")) {
-    const gm = trimmed.match(/GROUP\s+BY\s+(.+?)(?=\s+(?:HAVING|ORDER\s+BY|LIMIT|$))/i);
-    if (gm) groupBy = `\nGROUP BY ${gm[1].trim()}`;
-  }
-
-  // Add HAVING if applicable
-  let having = "";
-  if (clauseOrder >= EXECUTION_ORDER.indexOf("HAVING")) {
-    const hm = trimmed.match(/HAVING\s+(.+?)(?=\s+(?:ORDER\s+BY|LIMIT|$))/i);
-    if (hm) having = `\nHAVING ${hm[1].trim()}`;
-  }
-
-  return `SELECT COUNT(*) AS rows ${fromPart}${joins}${where}${groupBy}${having}`;
+  return `${fromPart}${joins}`;
 }
 
-/* ── Clause Colors ── */
+function getWhere(sql: string): string {
+  const wm = sql.match(/WHERE\s+(.+?)(?=\s+(?:GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|$))/i);
+  return wm ? `\nWHERE ${wm[1].trim()}` : "";
+}
+
+function getGroupBy(sql: string): string {
+  const gm = sql.match(/GROUP\s+BY\s+(.+?)(?=\s+(?:HAVING|ORDER\s+BY|LIMIT|$))/i);
+  return gm ? `\nGROUP BY ${gm[1].trim()}` : "";
+}
+
+function getHaving(sql: string): string {
+  const hm = sql.match(/HAVING\s+(.+?)(?=\s+(?:ORDER\s+BY|LIMIT|$))/i);
+  return hm ? `\nHAVING ${hm[1].trim()}` : "";
+}
+
+function buildPartialUpTo(sql: string, clause: string, endPos?: number): string | null {
+  const trimmed = sql.trim().replace(/;+\s*$/, "");
+  const fromAndJoins = getFromAndJoins(trimmed, clause, endPos);
+  if (!fromAndJoins) return null;
+
+  const clauseOrder = EXECUTION_ORDER.indexOf(clause);
+  let where = "";
+  if (clauseOrder >= EXECUTION_ORDER.indexOf("WHERE")) where = getWhere(trimmed);
+  let groupBy = "";
+  if (clauseOrder >= EXECUTION_ORDER.indexOf("GROUP BY")) groupBy = getGroupBy(trimmed);
+  let having = "";
+  if (clauseOrder >= EXECUTION_ORDER.indexOf("HAVING")) having = getHaving(trimmed);
+
+  return `SELECT COUNT(*) AS rows ${fromAndJoins}${where}${groupBy}${having}`;
+}
+
+function buildPreviewUpTo(sql: string, clause: string, endPos?: number): string | null {
+  const trimmed = sql.trim().replace(/;+\s*$/, "");
+  const fromAndJoins = getFromAndJoins(trimmed, clause, endPos);
+  if (!fromAndJoins) return null;
+
+  const clauseOrder = EXECUTION_ORDER.indexOf(clause);
+  let where = "";
+  if (clauseOrder >= EXECUTION_ORDER.indexOf("WHERE")) where = getWhere(trimmed);
+
+  return `SELECT * ${fromAndJoins}${where} LIMIT 5`;
+}
+
+function buildGroupPreview(sql: string, selectCols: string): string | null {
+  const trimmed = sql.trim().replace(/;+\s*$/, "");
+  const fromAndJoins = getFromAndJoins(trimmed, "GROUP BY");
+  if (!fromAndJoins) return null;
+  const where = getWhere(trimmed);
+  const groupBy = getGroupBy(trimmed);
+  return `SELECT ${selectCols} ${fromAndJoins}${where}${groupBy} LIMIT 5`;
+}
+
+function buildHavingPreview(sql: string, selectCols: string): string | null {
+  const trimmed = sql.trim().replace(/;+\s*$/, "");
+  const fromAndJoins = getFromAndJoins(trimmed, "HAVING");
+  if (!fromAndJoins) return null;
+  const where = getWhere(trimmed);
+  const groupBy = getGroupBy(trimmed);
+  const having = getHaving(trimmed);
+  return `SELECT ${selectCols} ${fromAndJoins}${where}${groupBy}${having} LIMIT 5`;
+}
+
+/* ── Clause Colors & Icons ── */
 const CLAUSE_COLORS: Record<string, string> = {
   CTE: "bg-purple-500/20 text-purple-400 border-purple-500/40",
   FROM: "bg-blue-500/20 text-blue-400 border-blue-500/40",
@@ -303,13 +365,62 @@ const CLAUSE_COLORS: Record<string, string> = {
   LIMIT: "bg-gray-500/20 text-gray-400 border-gray-500/40",
 };
 
-const CLAUSE_ICONS: Record<string, string> = {
-  CTE: "📦", FROM: "📂", JOIN: "🔗", WHERE: "🔍",
-  "GROUP BY": "📊", HAVING: "🎯", SELECT: "✂️",
-  WINDOW: "🪟", DISTINCT: "🔲", "ORDER BY": "↕️", LIMIT: "✋",
+const CLAUSE_BORDER: Record<string, string> = {
+  CTE: "border-purple-500/30",
+  FROM: "border-blue-500/30",
+  JOIN: "border-cyan-500/30",
+  WHERE: "border-amber-500/30",
+  "GROUP BY": "border-green-500/30",
+  HAVING: "border-emerald-500/30",
+  SELECT: "border-indigo-500/30",
+  WINDOW: "border-pink-500/30",
+  DISTINCT: "border-violet-500/30",
+  "ORDER BY": "border-orange-500/30",
+  LIMIT: "border-gray-500/30",
 };
 
-/* ── Component ── */
+/* ── Mini Table Component ── */
+function MiniTable({ data, clause }: { data: IntermediateResult; clause: string }) {
+  const borderClass = CLAUSE_BORDER[clause] || "border-gray-500/30";
+  return (
+    <div className={`mt-3 overflow-hidden rounded-md border ${borderClass}`}>
+      <div className="flex items-center justify-between bg-[var(--color-background)] px-3 py-1.5">
+        <span className="text-[10px] font-medium text-[var(--color-text-muted)]">
+          Intermediate Result
+        </span>
+        <span className="text-[10px] text-[var(--color-text-muted)]">
+          {data.totalRows.toLocaleString()} total rows (showing {data.rows.length})
+        </span>
+      </div>
+      <div className="max-h-40 overflow-auto">
+        <table className="w-full text-[11px]">
+          <thead className="sticky top-0 bg-[var(--color-surface)]">
+            <tr className="border-b border-[var(--color-border)]">
+              {data.columns.map((col) => (
+                <th key={col} className="px-2 py-1.5 text-left font-medium text-[var(--color-text-muted)]">
+                  {col}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {data.rows.map((row, i) => (
+              <tr key={i} className="border-b border-[var(--color-border)]/30">
+                {row.map((cell, j) => (
+                  <td key={j} className={`px-2 py-1 font-mono ${cell === null ? "italic text-[var(--color-text-muted)]" : "text-[var(--color-text-secondary)]"}`}>
+                    {cell === null ? "NULL" : String(cell).length > 30 ? String(cell).substring(0, 30) + "..." : String(cell)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ── Main Component ── */
 export default function AnalyzerPage() {
   const [query, setQuery] = useState(EXAMPLES[0].query);
   const [dataset, setDataset] = useState(EXAMPLES[0].dataset);
@@ -324,6 +435,7 @@ export default function AnalyzerPage() {
     executionTimeMs: number;
   } | null>(null);
   const [analyzed, setAnalyzed] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const handleAnalyze = useCallback(async () => {
@@ -333,15 +445,17 @@ export default function AnalyzerPage() {
     setAnalyzed(false);
     setActiveStep(null);
     setFinalResult(null);
+    setAnalyzeError(null);
 
-    // Parse the query into steps
     const parsed = parseQuerySteps(query);
+    const stepsWithData: ExecutionStep[] = [];
 
-    // Execute partial queries to get row counts at each step
-    const stepsWithCounts: ExecutionStep[] = [];
-
-    for (const step of parsed) {
+    // Execute partial queries in parallel for speed
+    const promises = parsed.map(async (step) => {
       let rowCount: number | null = null;
+      let intermediateData: IntermediateResult | null = null;
+
+      // Get row count
       if (step.partialQuery) {
         try {
           const data = await apiClient<{
@@ -355,13 +469,40 @@ export default function AnalyzerPage() {
             rowCount = Number(data.user_result.rows[0][0]);
           }
         } catch {
-          // Partial query failed — that's fine, just skip the count
+          // skip
         }
       }
-      stepsWithCounts.push({ ...step, rowCount });
-    }
 
-    // Execute the full query for final result
+      // Get preview rows
+      if (step.previewQuery) {
+        try {
+          const data = await apiClient<{
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            user_result?: any;
+            error?: string;
+          }>("/api/query/execute", {
+            method: "POST",
+            body: JSON.stringify({ query: step.previewQuery, dataset }),
+          });
+          if (data.user_result?.columns && data.user_result?.rows) {
+            intermediateData = {
+              columns: data.user_result.columns,
+              rows: data.user_result.rows,
+              totalRows: rowCount ?? data.user_result.row_count ?? data.user_result.rowCount ?? data.user_result.rows.length,
+            };
+          }
+        } catch {
+          // skip
+        }
+      }
+
+      return { ...step, rowCount, intermediateData };
+    });
+
+    const results = await Promise.all(promises);
+    stepsWithData.push(...results);
+
+    // Execute the full query
     try {
       const data = await apiClient<{
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -371,7 +512,9 @@ export default function AnalyzerPage() {
         method: "POST",
         body: JSON.stringify({ query: query.trim(), dataset }),
       });
-      if (data.user_result) {
+      if (data.error) {
+        setAnalyzeError(data.error);
+      } else if (data.user_result) {
         setFinalResult({
           columns: data.user_result.columns,
           rows: data.user_result.rows,
@@ -379,11 +522,11 @@ export default function AnalyzerPage() {
           executionTimeMs: data.user_result.execution_time_ms ?? data.user_result.executionTimeMs ?? 0,
         });
       }
-    } catch {
-      // Full query failed
+    } catch (e: unknown) {
+      setAnalyzeError(e instanceof Error ? e.message : "Query failed");
     }
 
-    setExecutionSteps(stepsWithCounts);
+    setExecutionSteps(stepsWithData);
     setAnalyzed(true);
     setIsAnalyzing(false);
 
@@ -394,14 +537,14 @@ export default function AnalyzerPage() {
     intervalRef.current = setInterval(() => {
       setActiveStep(i);
       i++;
-      if (i >= stepsWithCounts.length) {
+      if (i >= stepsWithData.length) {
         if (intervalRef.current) clearInterval(intervalRef.current);
         setIsPlaying(false);
       }
-    }, 1200);
+    }, 1500);
   }, [query, dataset]);
 
-  const steps = analyzed ? executionSteps : parseQuerySteps(query).map((s) => ({ ...s, rowCount: null }));
+  const steps = analyzed ? executionSteps : parseQuerySteps(query).map((s) => ({ ...s, rowCount: null, intermediateData: null }));
 
   return (
     <div className="mx-auto max-w-[var(--max-width-content)] px-6 py-8">
@@ -412,7 +555,7 @@ export default function AnalyzerPage() {
             Query Execution Visualizer
           </h1>
           <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
-            SQL doesn&apos;t execute top-to-bottom. See the real execution order with intermediate row counts.
+            SQL doesn&apos;t execute top-to-bottom. See the real execution order with live data at each step.
           </p>
         </div>
         <div className="flex gap-2">
@@ -435,6 +578,7 @@ export default function AnalyzerPage() {
                 setAnalyzed(false);
                 setExecutionSteps([]);
                 setFinalResult(null);
+                setAnalyzeError(null);
               }
             }}
             className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs text-[var(--color-text-primary)]"
@@ -450,8 +594,8 @@ export default function AnalyzerPage() {
       <div className="mt-4 rounded-lg border border-[var(--color-accent)]/20 bg-[var(--color-accent)]/5 px-4 py-3">
         <p className="text-xs text-[var(--color-text-secondary)]">
           <span className="font-semibold text-[var(--color-accent)]">Key insight:</span>{" "}
-          SQL executes FROM → JOIN → WHERE → GROUP BY → HAVING → SELECT → ORDER BY → LIMIT.
-          The SELECT you write first actually runs near-last.
+          You write SELECT first, but the database executes FROM first.
+          The real order: FROM {"\u2192"} JOIN {"\u2192"} WHERE {"\u2192"} GROUP BY {"\u2192"} HAVING {"\u2192"} SELECT {"\u2192"} ORDER BY {"\u2192"} LIMIT
         </p>
       </div>
 
@@ -467,6 +611,7 @@ export default function AnalyzerPage() {
                 setAnalyzed(false);
                 setExecutionSteps([]);
                 setFinalResult(null);
+                setAnalyzeError(null);
               }}
               onRun={handleAnalyze}
               dialect="postgresql"
@@ -490,13 +635,13 @@ export default function AnalyzerPage() {
               </div>
               <div>
                 <p className="text-xl font-bold text-[var(--color-text-primary)]">
-                  {finalResult?.rowCount ?? "—"}
+                  {finalResult?.rowCount ?? "\u2014"}
                 </p>
                 <p className="text-[10px] text-[var(--color-text-muted)]">Final Rows</p>
               </div>
               <div>
                 <p className="text-xl font-bold text-[var(--color-text-primary)]">
-                  {finalResult ? `${finalResult.executionTimeMs}ms` : "—"}
+                  {finalResult ? `${finalResult.executionTimeMs}ms` : "\u2014"}
                 </p>
                 <p className="text-[10px] text-[var(--color-text-muted)]">Time</p>
               </div>
@@ -535,13 +680,13 @@ export default function AnalyzerPage() {
               Reset
             </button>
             {steps.length > 0 && (
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5">
                 {steps.map((_, i) => (
                   <button
                     key={i}
                     onClick={() => { setActiveStep(i); setIsPlaying(false); if (intervalRef.current) clearInterval(intervalRef.current); }}
                     className={`h-2.5 w-2.5 rounded-full transition-all ${
-                      activeStep !== null && i <= activeStep ? "bg-[var(--color-accent)] scale-110" : "bg-[var(--color-border)]"
+                      activeStep !== null && i <= activeStep ? "bg-[var(--color-accent)] scale-125" : "bg-[var(--color-border)]"
                     }`}
                   />
                 ))}
@@ -552,30 +697,31 @@ export default function AnalyzerPage() {
           {/* Row flow visualization */}
           {analyzed && steps.some((s) => s.rowCount !== null) && (
             <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-              <h3 className="text-xs font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
-                Row Flow
+              <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
+                Data Flow
               </h3>
-              <div className="mt-3 flex items-center gap-1 overflow-x-auto">
+              <div className="flex items-center gap-1 overflow-x-auto pb-1">
                 {steps.filter((s) => s.rowCount !== null).map((step, i, arr) => {
                   const prev = i > 0 ? arr[i - 1].rowCount! : null;
                   const change = prev !== null ? step.rowCount! - prev : null;
                   return (
                     <div key={i} className="flex items-center gap-1">
-                      <div className="flex flex-col items-center">
+                      <div className="flex flex-col items-center min-w-[60px]">
                         <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${CLAUSE_COLORS[step.clause]?.split(" ").slice(0, 2).join(" ") || "bg-gray-500/20 text-gray-400"}`}>
-                          {step.keyword}
+                          {step.keyword.length > 8 ? step.clause : step.keyword}
                         </span>
-                        <span className="mt-1 text-xs font-bold text-[var(--color-text-primary)]">
+                        <span className="mt-1 text-sm font-bold text-[var(--color-text-primary)]">
                           {step.rowCount?.toLocaleString()}
                         </span>
-                        {change !== null && (
-                          <span className={`text-[10px] ${change > 0 ? "text-green-400" : change < 0 ? "text-red-400" : "text-[var(--color-text-muted)]"}`}>
+                        <span className="text-[9px] text-[var(--color-text-muted)]">rows</span>
+                        {change !== null && change !== 0 && (
+                          <span className={`text-[10px] font-medium ${change > 0 ? "text-green-400" : "text-red-400"}`}>
                             {change > 0 ? `+${change.toLocaleString()}` : change.toLocaleString()}
                           </span>
                         )}
                       </div>
                       {i < arr.length - 1 && (
-                        <svg className="mx-1 h-4 w-4 text-[var(--color-text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg className="mx-0.5 h-4 w-4 shrink-0 text-[var(--color-text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                         </svg>
                       )}
@@ -584,16 +730,17 @@ export default function AnalyzerPage() {
                 })}
                 {finalResult && (
                   <>
-                    <svg className="mx-1 h-4 w-4 text-[var(--color-text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="mx-0.5 h-4 w-4 shrink-0 text-[var(--color-text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
-                    <div className="flex flex-col items-center">
+                    <div className="flex flex-col items-center min-w-[60px]">
                       <span className="rounded bg-[var(--color-accent)]/20 px-1.5 py-0.5 text-[10px] font-bold text-[var(--color-accent)]">
                         RESULT
                       </span>
-                      <span className="mt-1 text-xs font-bold text-[var(--color-accent)]">
+                      <span className="mt-1 text-sm font-bold text-[var(--color-accent)]">
                         {finalResult.rowCount.toLocaleString()}
                       </span>
+                      <span className="text-[9px] text-[var(--color-text-muted)]">rows</span>
                     </div>
                   </>
                 )}
@@ -603,12 +750,20 @@ export default function AnalyzerPage() {
         </div>
       </div>
 
+      {/* Error */}
+      {analyzeError && (
+        <div className="mt-6 rounded-lg border border-red-500/30 bg-red-500/10 p-4">
+          <p className="text-xs font-medium text-red-400">Query Error</p>
+          <p className="mt-1 font-mono text-xs text-red-300">{analyzeError}</p>
+        </div>
+      )}
+
       {/* Execution Steps */}
       <div className="mt-8">
         <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
           Execution Order
           <span className="ml-2 text-xs font-normal text-[var(--color-text-muted)]">
-            Click any step to jump to it
+            Click any step to see intermediate data
           </span>
         </h2>
 
@@ -619,26 +774,30 @@ export default function AnalyzerPage() {
             const colorClass = CLAUSE_COLORS[step.clause] || CLAUSE_COLORS.LIMIT;
 
             return (
-              <button
+              <div
                 key={i}
+                role="button"
+                tabIndex={0}
                 onClick={() => {
                   setActiveStep(i);
                   setIsPlaying(false);
                   if (intervalRef.current) clearInterval(intervalRef.current);
                 }}
-                className={`w-full text-left rounded-lg border p-4 transition-all ${
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { setActiveStep(i); setIsPlaying(false); } }}
+                className={`w-full text-left rounded-lg border p-4 transition-all cursor-pointer ${
                   isCurrent
-                    ? "border-[var(--color-accent)] bg-[var(--color-accent)]/5 shadow-md"
+                    ? `${CLAUSE_BORDER[step.clause] || "border-[var(--color-accent)]"} bg-[var(--color-surface)] shadow-lg`
                     : isActive
                       ? "border-[var(--color-border)] bg-[var(--color-surface)]"
                       : "border-[var(--color-border)] opacity-40"
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-accent)] text-xs font-bold text-white">
+                  <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${
+                    isCurrent ? "bg-[var(--color-accent)] ring-2 ring-[var(--color-accent)]/30" : isActive ? "bg-[var(--color-accent)]" : "bg-[var(--color-border)]"
+                  }`}>
                     {i + 1}
                   </span>
-                  <span className="text-base">{CLAUSE_ICONS[step.clause] || "📋"}</span>
                   <span className={`rounded-md border px-2 py-0.5 text-xs font-bold ${colorClass}`}>
                     {step.keyword}
                   </span>
@@ -646,7 +805,7 @@ export default function AnalyzerPage() {
                     {step.description}
                   </span>
                   {step.rowCount !== null && (
-                    <span className="shrink-0 rounded-full bg-[var(--color-background)] px-2 py-0.5 text-[10px] font-medium text-[var(--color-text-secondary)]">
+                    <span className="shrink-0 rounded-full bg-[var(--color-background)] px-2.5 py-0.5 text-[10px] font-bold text-[var(--color-text-secondary)]">
                       {step.rowCount.toLocaleString()} rows
                     </span>
                   )}
@@ -664,9 +823,13 @@ export default function AnalyzerPage() {
                         </code>
                       </div>
                     )}
+                    {/* Intermediate table data */}
+                    {step.intermediateData && (
+                      <MiniTable data={step.intermediateData} clause={step.clause} />
+                    )}
                   </div>
                 )}
-              </button>
+              </div>
             );
           })}
 
@@ -686,7 +849,7 @@ export default function AnalyzerPage() {
           <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
             Final Result
             <span className="ml-2 text-xs font-normal text-[var(--color-text-muted)]">
-              {finalResult.rowCount} rows • {finalResult.executionTimeMs}ms
+              {finalResult.rowCount} rows {"\u00B7"} {finalResult.executionTimeMs}ms
             </span>
           </h2>
           <div className="mt-3 max-h-64 overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]">
