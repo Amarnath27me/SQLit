@@ -14,10 +14,10 @@ const primaryLinks = [
   { href: "/optimization", label: "Optimization" },
   { href: "/docs", label: "Docs" },
   { href: "/datasets", label: "Datasets" },
+  { href: "/debug", label: "Debug" },
 ];
 
 const moreLinks = [
-  { href: "/debug", label: "Data Debugging" },
   { href: "/analyzer", label: "Query Analyzer" },
   { href: "/challenge", label: "Challenge Mode" },
   { href: "/db-design", label: "Database Design" },
