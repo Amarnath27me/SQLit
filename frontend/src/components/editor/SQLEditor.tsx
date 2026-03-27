@@ -95,6 +95,21 @@ export function SQLEditor({
         });
       }
 
+      // Placeholder text when empty
+      const placeholderEl = document.createElement("div");
+      placeholderEl.className = "monaco-placeholder";
+      placeholderEl.style.cssText =
+        "position:absolute;top:12px;left:64px;pointer-events:none;color:#4B5563;font-size:14px;font-family:inherit;";
+      placeholderEl.textContent = "Write your SQL query here...";
+      const domNode = editor.getDomNode();
+      if (domNode) domNode.appendChild(placeholderEl);
+
+      const updatePlaceholder = () => {
+        placeholderEl.style.display = editor.getValue() ? "none" : "block";
+      };
+      updatePlaceholder();
+      editor.onDidChangeModelContent(updatePlaceholder);
+
       editor.focus();
     },
     [onRun, tables]

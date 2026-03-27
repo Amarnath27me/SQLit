@@ -47,7 +47,7 @@ interface PracticeState {
 }
 
 export const usePracticeStore = create<PracticeState>((set) => ({
-  query: "-- Write your SQL query here\nSELECT \n  \nFROM \nWHERE ;\n",
+  query: "",
   dialect: "postgresql",
   dataset: "ecommerce",
   status: "idle",
@@ -72,7 +72,7 @@ export const usePracticeStore = create<PracticeState>((set) => ({
   setResult: (result) => set({ ...result }),
   reset: () =>
     set({
-      query: "-- Write your SQL query here\nSELECT \n  \nFROM \nWHERE ;\n",
+      query: "",
       status: "idle",
       userResult: null,
       expectedResult: null,
