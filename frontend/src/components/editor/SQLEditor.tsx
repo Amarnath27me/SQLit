@@ -22,6 +22,8 @@ export function SQLEditor({
   tables = [],
 }: SQLEditorProps) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const onRunRef = useRef(onRun);
+  onRunRef.current = onRun;
 
   const handleBeforeMount: BeforeMount = useCallback((monaco) => {
     monaco.editor.defineTheme("sqlit-dark", {
@@ -55,7 +57,7 @@ export function SQLEditor({
         label: "Run Query",
         keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
         run: () => {
-          onRun();
+          onRunRef.current();
         },
       });
 
@@ -112,7 +114,7 @@ export function SQLEditor({
 
       editor.focus();
     },
-    [onRun, tables]
+    [tables]
   );
 
   return (
