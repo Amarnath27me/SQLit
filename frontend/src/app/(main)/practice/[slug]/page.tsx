@@ -66,6 +66,7 @@ export default function ProblemPage() {
   };
 
   useEffect(() => {
+    store.reset();
     fetchProblem();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
