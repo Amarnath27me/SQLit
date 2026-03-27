@@ -23,6 +23,28 @@ export function SQLEditor({
 }: SQLEditorProps) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
+  const handleBeforeMount: BeforeMount = useCallback((monaco) => {
+    monaco.editor.defineTheme("sqlit-dark", {
+      base: "vs-dark",
+      inherit: true,
+      rules: [],
+      colors: {
+        "editor.background": "#0A0A0A",
+        "editor.lineHighlightBackground": "#171717",
+        "editorGutter.background": "#0A0A0A",
+        "editorLineNumber.foreground": "#4B5563",
+        "editorLineNumber.activeForeground": "#9CA3AF",
+        "editor.selectionBackground": "#2563EB44",
+        "editorCursor.foreground": "#3B82F6",
+        "editorWidget.background": "#171717",
+        "editorWidget.border": "#262626",
+        "editorSuggestWidget.background": "#171717",
+        "editorSuggestWidget.border": "#262626",
+        "editorSuggestWidget.selectedBackground": "#262626",
+      },
+    });
+  }, []);
+
   const handleMount: OnMount = useCallback(
     (editor, monaco) => {
       editorRef.current = editor;
@@ -102,17 +124,23 @@ export function SQLEditor({
       </div>
 
       {/* Editor */}
-      <div className="flex-1">
+      <div className="flex-1 min-h-0">
         <Editor
           defaultLanguage="sql"
           value={value}
           onChange={(v) => onChange(v ?? "")}
+          beforeMount={handleBeforeMount}
           onMount={handleMount}
-          theme="vs-dark"
+          theme="sqlit-dark"
+          loading={
+            <div className="flex h-full items-center justify-center bg-[var(--color-background)]">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--color-accent)] border-t-transparent" />
+            </div>
+          }
           options={{
             minimap: { enabled: false },
             fontSize: 14,
-            fontFamily: "var(--font-geist-mono), 'Fira Code', monospace",
+            fontFamily: "'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace",
             lineNumbers: "on",
             renderLineHighlight: "line",
             scrollBeyondLastLine: false,
@@ -120,8 +148,15 @@ export function SQLEditor({
             tabSize: 2,
             automaticLayout: true,
             readOnly,
-            padding: { top: 12 },
+            padding: { top: 12, bottom: 12 },
             suggestOnTriggerCharacters: true,
+            lineDecorationsWidth: 8,
+            folding: false,
+            glyphMargin: false,
+            contextmenu: true,
+            smoothScrolling: true,
+            cursorBlinking: "smooth",
+            cursorSmoothCaretAnimation: "on",
           }}
         />
       </div>
