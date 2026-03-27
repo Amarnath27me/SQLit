@@ -19,7 +19,7 @@ async def list_problems(
     difficulty: str | None = None,
     category: str | None = None,
     skip: int = 0,
-    limit: int = 200,
+    limit: int = 500,
 ):
     problems = get_all_problems(dataset=dataset, difficulty=difficulty, category=category)
     total = len(problems)
