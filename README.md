@@ -11,7 +11,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-336791?style=for-the-badge&logo=postgresql&logoColor=white)](https://postgresql.org)
 
-**[🚀 Try it Live](https://sqlit-nu.vercel.app) · [📖 Docs](#getting-started) · [🤝 Contribute](#contributing)**
+**[🚀 Try it Live](https://sqlit.space/) · [📖 Docs](#getting-started) · [🤝 Contribute](#contributing)**
 
 </div>
 
