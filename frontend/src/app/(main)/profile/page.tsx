@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
 import { useUser } from "@auth0/nextjs-auth0/client";
 import { useUserStore } from "@/stores/useUserStore";
-import { apiClient } from "@/lib/api";
+import { getAllProblems } from "@/lib/problems";
 import { ConceptBadges } from "@/components/profile/ConceptBadges";
 import { ActivityHeatmap } from "@/components/profile/ActivityHeatmap";
 
@@ -93,51 +93,40 @@ export default function ProfilePage() {
   const name = user?.name || displayName;
   const picture = user?.picture || avatar;
 
-  // Fetch all problems to build per-category solve counts
-  const [categoryStats, setCategoryStats] = useState<Record<string, { solved: number; total: number }>>({});
-  const [recentSolved, setRecentSolved] = useState<{ id: string; slug: string; title: string; difficulty: string; category: string }[]>([]);
+  // Build per-category solve counts from static data
+  const { categoryStats, recentSolved } = useMemo(() => {
+    const problems = getAllProblems();
 
-  useEffect(() => {
-    apiClient<{ problems: { id: string; slug: string; title: string; category: string; difficulty: string }[] }>("/api/problems")
-      .then((data) => {
-        const problems = data.problems || [];
+    // Count totals per category
+    const totals: Record<string, number> = {};
+    for (const p of problems) {
+      const cat = normalizeCategory(p.category);
+      totals[cat] = (totals[cat] || 0) + 1;
+    }
 
-        // Count totals per category
-        const totals: Record<string, number> = {};
-        const problemCategoryMap: Record<string, string> = {};
-        for (const p of problems) {
-          const cat = normalizeCategory(p.category);
-          totals[cat] = (totals[cat] || 0) + 1;
-          problemCategoryMap[p.id] = cat;
-        }
+    // Count solved per category
+    const solvedCounts: Record<string, number> = {};
+    const solvedSet = new Set(solvedProblems);
+    for (const p of problems) {
+      if (solvedSet.has(p.id)) {
+        const cat = normalizeCategory(p.category);
+        solvedCounts[cat] = (solvedCounts[cat] || 0) + 1;
+      }
+    }
 
-        // Count solved per category
-        const solvedCounts: Record<string, number> = {};
-        const solvedSet = new Set(solvedProblems);
-        for (const p of problems) {
-          if (solvedSet.has(p.id)) {
-            const cat = normalizeCategory(p.category);
-            solvedCounts[cat] = (solvedCounts[cat] || 0) + 1;
-          }
-        }
+    // Build stats
+    const stats: Record<string, { solved: number; total: number }> = {};
+    for (const c of CATEGORY_CONFIG) {
+      stats[c.key] = { solved: solvedCounts[c.key] || 0, total: totals[c.key] || 0 };
+    }
 
-        // Build stats
-        const stats: Record<string, { solved: number; total: number }> = {};
-        for (const c of CATEGORY_CONFIG) {
-          stats[c.key] = { solved: solvedCounts[c.key] || 0, total: totals[c.key] || 0 };
-        }
-        setCategoryStats(stats);
+    // Build recent solved list (last 5)
+    const recent = problems
+      .filter((p) => solvedSet.has(p.id))
+      .slice(-5)
+      .reverse();
 
-        // Build recent solved list (last 5)
-        const solvedProblemsData = problems
-          .filter((p) => solvedSet.has(p.id))
-          .slice(-5)
-          .reverse();
-        setRecentSolved(solvedProblemsData);
-      })
-      .catch((err) => {
-        console.warn("Failed to load problems for profile:", err);
-      });
+    return { categoryStats: stats, recentSolved: recent };
   }, [solvedProblems]);
 
   return (

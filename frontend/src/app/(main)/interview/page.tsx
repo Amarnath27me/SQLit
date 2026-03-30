@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/Badge";
 import { SQLEditor } from "@/components/editor/SQLEditor";
 import { apiClient } from "@/lib/api";
 import { getSchemaForDataset } from "@/lib/schemas";
+import { getAllProblems, getProblemBySlug } from "@/lib/problems";
 import type { Difficulty, Dataset } from "@/types";
 
 /* ------------------------------------------------------------------ */
@@ -1068,19 +1069,9 @@ export default function InterviewPage() {
     difficultyMix: string;
   } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const allProblemsRef = useRef<ProblemFromAPI[]>([]);
-
-  // Prefetch problem list on mount
-  useEffect(() => {
-    apiClient<{ problems: ProblemFromAPI[]; total: number }>("/api/problems")
-      .then((data) => {
-        allProblemsRef.current = data.problems;
-      })
-      .catch(() => {});
-  }, []);
 
   const handleStart = useCallback(
-    async (cfg: {
+    (cfg: {
       company: Company;
       role: Role;
       questionCount: number;
@@ -1088,84 +1079,65 @@ export default function InterviewPage() {
       difficultyMix: string;
     }) => {
       setConfig(cfg);
-      setPhase("loading");
       setLoadError(null);
 
-      try {
-        // If problems haven't been fetched yet
-        if (allProblemsRef.current.length === 0) {
-          const data = await apiClient<{
-            problems: ProblemFromAPI[];
-            total: number;
-          }>("/api/problems");
-          allProblemsRef.current = data.problems;
-        }
-
-        const all = allProblemsRef.current;
-        const mix =
-          DIFFICULTY_MIXES.find((d) => d.value === cfg.difficultyMix)?.mix ?? {
-            easy: 0.3,
-            medium: 0.4,
-            hard: 0.3,
-          };
-
-        // Select problems by difficulty ratio
-        const byDiff: Record<Difficulty, ProblemFromAPI[]> = {
-          easy: shuffle(
-            all.filter((p) => p.difficulty === "easy"),
-            Date.now()
-          ),
-          medium: shuffle(
-            all.filter((p) => p.difficulty === "medium"),
-            Date.now() + 1
-          ),
-          hard: shuffle(
-            all.filter((p) => p.difficulty === "hard"),
-            Date.now() + 2
-          ),
+      const all = getAllProblems() as unknown as ProblemFromAPI[];
+      const mix =
+        DIFFICULTY_MIXES.find((d) => d.value === cfg.difficultyMix)?.mix ?? {
+          easy: 0.3,
+          medium: 0.4,
+          hard: 0.3,
         };
 
-        const counts: Record<Difficulty, number> = {
-          easy: Math.round(cfg.questionCount * mix.easy),
-          medium: Math.round(cfg.questionCount * mix.medium),
-          hard: 0,
-        };
-        counts.hard = cfg.questionCount - counts.easy - counts.medium;
+      // Select problems by difficulty ratio
+      const byDiff: Record<Difficulty, ProblemFromAPI[]> = {
+        easy: shuffle(
+          all.filter((p) => p.difficulty === "easy"),
+          Date.now()
+        ),
+        medium: shuffle(
+          all.filter((p) => p.difficulty === "medium"),
+          Date.now() + 1
+        ),
+        hard: shuffle(
+          all.filter((p) => p.difficulty === "hard"),
+          Date.now() + 2
+        ),
+      };
 
-        const selected: ProblemFromAPI[] = [];
-        for (const diff of ["easy", "medium", "hard"] as Difficulty[]) {
-          selected.push(...byDiff[diff].slice(0, counts[diff]));
-        }
+      const counts: Record<Difficulty, number> = {
+        easy: Math.round(cfg.questionCount * mix.easy),
+        medium: Math.round(cfg.questionCount * mix.medium),
+        hard: 0,
+      };
+      counts.hard = cfg.questionCount - counts.easy - counts.medium;
 
-        // Fill if we don't have enough
-        while (selected.length < cfg.questionCount) {
-          const remaining = all.filter(
-            (p) => !selected.some((s) => s.id === p.id)
-          );
-          if (remaining.length === 0) break;
-          selected.push(
-            remaining[Math.floor(Math.random() * remaining.length)]
-          );
-        }
-
-        // Shuffle the final selection so difficulties are mixed
-        const finalSelection = shuffle(selected, Date.now() + 3);
-
-        // Fetch full details for each selected problem in parallel
-        const details = await Promise.all(
-          finalSelection.map((p) =>
-            apiClient<ProblemDetail>(`/api/problems/${p.slug}`)
-          )
-        );
-
-        setProblems(details);
-        setPhase("interview");
-      } catch {
-        setLoadError(
-          "Failed to load interview questions. Please try again."
-        );
-        setPhase("setup");
+      const selected: ProblemFromAPI[] = [];
+      for (const diff of ["easy", "medium", "hard"] as Difficulty[]) {
+        selected.push(...byDiff[diff].slice(0, counts[diff]));
       }
+
+      // Fill if we don't have enough
+      while (selected.length < cfg.questionCount) {
+        const remaining = all.filter(
+          (p) => !selected.some((s) => s.id === p.id)
+        );
+        if (remaining.length === 0) break;
+        selected.push(
+          remaining[Math.floor(Math.random() * remaining.length)]
+        );
+      }
+
+      // Shuffle the final selection so difficulties are mixed
+      const finalSelection = shuffle(selected, Date.now() + 3);
+
+      // Get full details from static data (no API call needed)
+      const details = finalSelection
+        .map((p) => getProblemBySlug(p.slug) as unknown as ProblemDetail)
+        .filter(Boolean);
+
+      setProblems(details);
+      setPhase("interview");
     },
     []
   );

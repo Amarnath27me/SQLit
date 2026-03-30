@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useParams } from "next/navigation";
 import { ResizablePanel } from "@/components/ui/ResizablePanel";
 import { ProblemPanel } from "@/components/practice/ProblemPanel";
@@ -11,6 +11,7 @@ import { usePracticeStore } from "@/stores/usePracticeStore";
 import { useUserStore } from "@/stores/useUserStore";
 import { apiClient } from "@/lib/api";
 import { getSchemaForDataset } from "@/lib/schemas";
+import { getAllProblems, getProblemBySlug } from "@/lib/problems";
 import type { Difficulty } from "@/types";
 
 interface ProblemData {
@@ -45,38 +46,19 @@ export default function ProblemPage() {
   const store = usePracticeStore();
   const userStore = useUserStore();
   const isAuthenticated = userStore.isAuthenticated;
-  const [problem, setProblem] = useState<ProblemData | null>(null);
-  const [allProblems, setAllProblems] = useState<ProblemListItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  const fetchProblem = () => {
-    if (!slug) return;
-    setLoading(true);
-    setError(null);
-    apiClient<ProblemData>(`/api/problems/${slug}`)
-      .then((data) => {
-        setProblem(data);
-        if (data.dataset) {
-          store.setDataset(data.dataset);
-        }
-      })
-      .catch(() => setError("Failed to load problem. Please try again."))
-      .finally(() => setLoading(false));
-  };
+  const problem = useMemo(() => (slug ? getProblemBySlug(slug) as unknown as ProblemData | undefined : undefined), [slug]);
+  const allProblems = useMemo(() => getAllProblems() as unknown as ProblemListItem[], []);
+  const loading = false;
+  const error = problem === undefined && slug ? "Problem not found." : null;
 
   useEffect(() => {
     store.reset();
-    fetchProblem();
+    if (problem?.dataset) {
+      store.setDataset(problem.dataset);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
-
-  // Fetch all problems for recommendations (once)
-  useEffect(() => {
-    apiClient<{ problems: ProblemListItem[] }>("/api/problems")
-      .then((data) => setAllProblems(data.problems))
-      .catch(() => {});
-  }, []);
 
   const handleRun = useCallback(async () => {
     if (!problem) return;
@@ -163,16 +145,8 @@ export default function ProblemPage() {
   if (error) {
     return (
       <div className="flex h-[calc(100vh-3.5rem)] items-center justify-center">
-        <div className="flex flex-col items-center justify-center gap-4 py-20">
-          <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-6 py-4 text-center">
-            <p className="text-sm text-red-400">{error}</p>
-          </div>
-          <button
-            onClick={() => { setError(null); fetchProblem(); }}
-            className="rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] px-4 py-2 text-sm font-medium text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text-primary)] hover:border-[var(--color-accent)]"
-          >
-            Try Again
-          </button>
+        <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-6 py-4 text-center">
+          <p className="text-sm text-red-400">{error}</p>
         </div>
       </div>
     );

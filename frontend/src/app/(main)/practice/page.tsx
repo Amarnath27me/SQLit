@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/Badge";
-import { apiClient } from "@/lib/api";
+import { getAllProblems } from "@/lib/problems";
 import { useUserStore } from "@/stores/useUserStore";
 import type { Difficulty, ProblemCategory, Dataset } from "@/types";
 
@@ -36,27 +36,12 @@ const DATASETS: { value: Dataset; label: string }[] = [
 
 export default function PracticePage() {
   const solvedProblems = useUserStore((s) => s.solvedProblems);
-  const [problems, setProblems] = useState<ProblemListItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const problems = getAllProblems() as unknown as ProblemListItem[];
   const [search, setSearch] = useState("");
   const [difficultyFilter, setDifficultyFilter] = useState<Difficulty | "all">("all");
   const [categoryFilter, setCategoryFilter] = useState<ProblemCategory | "all">("all");
   const [datasetFilter, setDatasetFilter] = useState<Dataset | "all">("all");
   const [viewMode, setViewMode] = useState<"list" | "category">("list");
-
-  const fetchProblems = () => {
-    setLoading(true);
-    setError(null);
-    apiClient<{ problems: ProblemListItem[]; total: number }>("/api/problems")
-      .then((data) => setProblems(data.problems))
-      .catch(() => setError("Failed to load problems. Please try again."))
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => {
-    fetchProblems();
-  }, []);
 
   const filtered = useMemo(() => {
     return problems.filter((p) => {
@@ -186,30 +171,8 @@ export default function PracticePage() {
         </select>
       </div>
 
-      {/* Loading */}
-      {loading && (
-        <div className="mt-12 flex justify-center">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--color-accent)] border-t-transparent" />
-        </div>
-      )}
-
-      {/* Error */}
-      {error && (
-        <div className="flex flex-col items-center justify-center gap-4 py-20">
-          <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-6 py-4 text-center">
-            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
-          </div>
-          <button
-            onClick={() => { setError(null); fetchProblems(); }}
-            className="rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] px-4 py-2 text-sm font-medium text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text-primary)] hover:border-[var(--color-accent)]"
-          >
-            Try Again
-          </button>
-        </div>
-      )}
-
       {/* Problem List */}
-      {!loading && viewMode === "list" && (
+      {viewMode === "list" && (
         <div className="mt-6">
           <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -276,7 +239,7 @@ export default function PracticePage() {
         </div>
       )}
 
-      {!loading && viewMode === "category" && (
+      {viewMode === "category" && (
         <div className="mt-6 space-y-8">
           {Object.entries(grouped).map(([category, probs]) => (
             <div key={category}>
