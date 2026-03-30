@@ -4,7 +4,7 @@
 
 ### LeetCode for SQL — Practice with Real Datasets, Get Instant Feedback
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-sqlit--nu.vercel.app-blue?style=for-the-badge&logo=vercel)](https://sqlit-nu.vercel.app)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-sqlit--nu.vercel.app-blue?style=for-the-badge&logo=vercel)](https://sqlit.space/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?style=for-the-badge&logo=next.js)](https://nextjs.org)
