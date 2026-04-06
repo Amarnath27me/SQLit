@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { apiClient } from "@/lib/api";
 import { SQLEditor } from "@/components/editor/SQLEditor";
+import { getSchemaForDataset } from "@/lib/schemas";
 import INVESTIGATIONS from "@/data/debug-investigations";
 import type { Investigation } from "@/data/debug-investigations";
 
@@ -92,6 +93,20 @@ export default function DebugPage() {
   const [filterDifficulty, setFilterDifficulty] = useState<string>("all");
   const [filterDataset, setFilterDataset] = useState<string>("all");
   const [filterType, setFilterType] = useState<string>("all");
+
+  // Resolve table schemas for the selected investigation
+  const selectedTableSchemas = useMemo(() => {
+    if (!selected) return [];
+    const allTables = getSchemaForDataset(selected.dataset);
+    return selected.tables.map((t) => {
+      const schema = allTables.find((s) => s.name === t);
+      return {
+        name: t,
+        columns: schema ? schema.columns.map((c) => c.name) : [],
+        columnDetails: schema ? schema.columns : [],
+      };
+    });
+  }, [selected]);
 
   const issueTypes = [...new Set(INVESTIGATIONS.map((i) => i.issueType))].sort();
 
@@ -329,14 +344,31 @@ export default function DebugPage() {
                   <p className="text-xs font-medium text-[var(--color-accent)]">Your Task</p>
                   <p className="mt-1 text-sm text-[var(--color-text-primary)]">{selected.task}</p>
                 </div>
-                <div className="mt-3 text-xs text-[var(--color-text-muted)]">
-                  <span className="font-medium">Available tables:</span>{" "}
-                  {selected.tables.map((t, i) => (
-                    <span key={t}>
-                      <code className="rounded bg-[var(--color-background)] px-1 py-0.5 text-[var(--color-accent)]">{t}</code>
-                      {i < selected.tables.length - 1 && ", "}
-                    </span>
-                  ))}
+                <div className="mt-3">
+                  <p className="text-xs font-medium text-[var(--color-text-muted)]">Schema</p>
+                  <div className="mt-2 space-y-2">
+                    {selectedTableSchemas.map((t) => (
+                      <details key={t.name} className="group rounded-md border border-[var(--color-border)] bg-[var(--color-background)]">
+                        <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-medium text-[var(--color-accent)] hover:bg-[var(--color-surface)]">
+                          <svg className="h-3 w-3 transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M9 18l6-6-6-6" /></svg>
+                          {t.name}
+                          <span className="ml-auto text-[10px] font-normal text-[var(--color-text-muted)]">{t.columns.length} cols</span>
+                        </summary>
+                        <div className="border-t border-[var(--color-border)] px-3 py-2">
+                          <div className="flex flex-wrap gap-x-3 gap-y-1">
+                            {t.columnDetails.map((c) => (
+                              <span key={c.name} className="flex items-center gap-1 text-[11px]">
+                                {c.isPrimaryKey && <span className="text-amber-400" title="Primary Key">🔑</span>}
+                                {c.isForeignKey && <span className="text-blue-400" title={`FK → ${c.references}`}>🔗</span>}
+                                <code className="text-[var(--color-text-secondary)]">{c.name}</code>
+                                <span className="text-[var(--color-text-muted)]">{c.type}</span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </details>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -404,7 +436,7 @@ export default function DebugPage() {
                     onChange={(v) => setQuery(v)}
                     onRun={handleRun}
                     dialect="postgresql"
-                    tables={selected.tables.map((t) => ({ name: t, columns: [] }))}
+                    tables={selectedTableSchemas.map((t) => ({ name: t.name, columns: t.columns }))}
                   />
                 </div>
               </div>
