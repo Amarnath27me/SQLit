@@ -444,7 +444,15 @@ export default function DebugPage() {
               {/* Error */}
               {error && (
                 <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4">
-                  <h3 className="text-xs font-medium text-red-400">Error</h3>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-medium text-red-400">Error</h3>
+                    <button
+                      onClick={() => { setError(null); handleRun(); }}
+                      className="text-xs text-red-400 underline hover:text-red-300"
+                    >
+                      Retry
+                    </button>
+                  </div>
                   <p className="mt-1 font-mono text-xs text-red-300">{error}</p>
                 </div>
               )}

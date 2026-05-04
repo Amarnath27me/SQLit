@@ -285,8 +285,18 @@ export default function SandboxPage() {
           <div className="flex-1 overflow-auto">
             {error && (
               <div className="border-b border-red-500/30 bg-red-500/10 p-4">
-                <span className="text-xs font-medium text-red-400">Error: </span>
-                <span className="font-mono text-xs text-red-300">{error}</span>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <span className="text-xs font-medium text-red-400">Error: </span>
+                    <span className="font-mono text-xs text-red-300">{error}</span>
+                  </div>
+                  <button
+                    onClick={() => { setError(null); handleRun(); }}
+                    className="shrink-0 text-xs text-red-400 underline hover:text-red-300"
+                  >
+                    Retry
+                  </button>
+                </div>
               </div>
             )}
 

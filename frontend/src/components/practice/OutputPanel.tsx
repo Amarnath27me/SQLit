@@ -570,6 +570,11 @@ export function OutputPanel({
                     <strong>Tip:</strong> You&apos;ve exceeded the query limit (20/min). Take a moment to review your approach before trying again.
                   </div>
                 )}
+                {(error.toLowerCase().includes("warming up") || error.toLowerCase().includes("unavailable") || error.toLowerCase().includes("timed out")) && (
+                  <div className="rounded-lg bg-blue-500/5 border border-blue-500/20 p-3 text-xs text-blue-400">
+                    <strong>Note:</strong> The SQL engine is starting up — this takes a few seconds. Click <strong>Run</strong> again and it should work.
+                  </div>
+                )}
               </div>
             )}
           </>
